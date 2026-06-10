@@ -9,8 +9,8 @@ root    ::= "{" ws
             "\"topics\":"  ws strarr ws
             "}"
 
-status  ::= "\"active\"" | "\"dormant\"" | "\"complete\""
-          | "\"archived\"" | "\"superseded\"" | "\"unknown\""
+status  ::= "\"concept\"" | "\"draft\"" | "\"active\"" | "\"dormant\""
+          | "\"complete\"" | "\"archived\"" | "\"superseded\"" | "\"unknown\""
 
 strarr  ::= "[" ws ( string ( ws "," ws string )* )? ws "]"
 

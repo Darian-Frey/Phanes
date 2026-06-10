@@ -54,6 +54,10 @@ impl<T> Sourced<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
+    /// Early-stage idea, not yet committed to. The corpus's most common status.
+    Concept,
+    /// Being written up but not yet active work.
+    Draft,
     Active,
     Dormant,
     Complete,
@@ -66,6 +70,8 @@ pub enum Status {
 impl Status {
     pub fn as_str(self) -> &'static str {
         match self {
+            Status::Concept => "concept",
+            Status::Draft => "draft",
             Status::Active => "active",
             Status::Dormant => "dormant",
             Status::Complete => "complete",
@@ -80,6 +86,8 @@ impl FromStr for Status {
     type Err = ();
     fn from_str(s: &str) -> Result<Self, ()> {
         Ok(match s.trim().to_ascii_lowercase().as_str() {
+            "concept" => Status::Concept,
+            "draft" => Status::Draft,
             "active" => Status::Active,
             "dormant" => Status::Dormant,
             "complete" => Status::Complete,
