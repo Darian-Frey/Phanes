@@ -13,8 +13,8 @@ that must not drift.
 - **INV-2 — Proposed never overwrites asserted.** `model::Sourced<T>` tags every
   value with `Provenance::{Asserted, Proposed}`. Deterministic facts are
   asserted; model output is proposed. `indexer::merge_proposed` already enforces
-  the merge rules — proposed only fills gaps. Mirror this in `store::upsert`
-  (write the `*_source` columns) and in `show` output (surface the flag).
+  the merge rules — proposed only fills gaps. `store::upsert` writes the
+  `*_source` columns (done); still surface the flag in `show` output.
 - **INV-3 — Relationships are computed, not stored** (except explicit links).
   Shared-tag neighbours come from a JOIN at query time so they cannot go stale.
   Only the `links` table is persisted.
@@ -30,8 +30,8 @@ main.rs        parse CLI, open Store, dispatch
  ├─ model.rs   types: Provenance, Sourced<T>, Status, Idea, Enrichment (done)
  ├─ parser.rs  deterministic extraction (helpers done; parse() assembles them)
  ├─ indexer.rs walk → hash-gate → parse → [enrich] → upsert (control flow done)
- ├─ store.rs   SQLite; open()+schema done; upsert/queries stubbed
- ├─ query.rs   search / stale / related / resolve (stubbed, SQL sketched)
+ ├─ store.rs   SQLite; open/hash_for_path/upsert/prune_missing (done)
+ ├─ query.rs   search + stale (done); related + resolve (stubbed, SQL sketched)
  └─ enrich.rs  llama-server client, behind `enrich` feature (done)
 sql/schema.sql      tables + FTS5 (done — load-bearing, treat as authoritative)
 grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrichment
@@ -39,23 +39,23 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
 
 ## Status: done vs stubbed
 
-- **Done:** Cargo manifest, all type definitions, the schema, the GBNF grammar,
-  the deterministic parser helpers (`content_hash`, `id_from_path`, `first_h1`,
-  `extract_links`, `extract_wikilinks`), the full index control flow with the
-  hash cache gate and provenance-respecting merge, the enrichment HTTP client,
-  the CLI, and command dispatch wiring.
-- **Stubbed (`todo!()`):** `parser::parse` (assemble the helpers + gray_matter
-  frontmatter), `store::{hash_for_path, upsert, prune_missing}`,
-  `query::{search, stale, related, resolve}`, and the `show` / `new` command
-  bodies. The SQL each needs is written in doc comments at the stub.
+- **Done:** the full deterministic core — `store` (`hash_for_path`, `upsert`,
+  `prune_missing`), `parser::parse` (frontmatter **and** the blockquote header —
+  D-008), and `query::search` + `stale` with tinted table output. Plus the
+  original scaffold: types, schema, GBNF grammar, parser helpers, the index
+  control flow with hash gate and provenance merge, the enrichment HTTP client,
+  and the CLI. Compiles and passes 16 lib tests with and without
+  `--features enrich`. `phanes index --root ideas` works end to end.
+- **Stubbed (`todo!()`):** `query::{related, resolve}` and the `show` / `new`
+  command bodies. The SQL each needs is sketched in doc comments at the stub.
 
 ## Suggested implementation order
 
-1. `store::hash_for_path` + `store::upsert` — unblocks everything.
-2. `parser::parse` — then `phanes index` works end to end (deterministic).
-3. `query::search` + `stale` + `print_hits` table formatting.
-4. `query::related` + `resolve`, then the `show` command.
-5. `new` command (write frontmatter, then index the new file).
+1. ~~`store::hash_for_path` + `store::upsert`~~ — done.
+2. ~~`parser::parse`~~ — done; `phanes index` works end to end.
+3. ~~`query::search` + `stale` + `print_hits` table formatting~~ — done.
+4. `query::related` + `resolve`, then the `show` command. ← **next**
+5. `new` command (write the scaffold header, then index the new file).
 6. Build with `--features enrich`, stand up llama-server, test enrichment.
 
 ## Enrichment setup (the `enrich` feature)
@@ -78,9 +78,15 @@ not in the hot path and does not need to be clever.
 - README carries the four-field blockquote header (Status / Provenance /
   Last reviewed / Why). Refresh it when status changes; propose Status + Why for
   Shane's confirmation rather than committing silently.
+- This project follows the Development Documentation Standard
+  (`development_documentation.md`): append-only stable IDs (F-/D-/BUG-/IMP-), log
+  bugs/improvements when found rather than silently fixing them (Rule 8), and
+  treat docs as part of the commit (Rule 7). See FEATURES.md, ARCHITECTURE.md,
+  DECISIONS.md.
+- Commit and push only when Shane asks.
 - Crate versions in Cargo.toml are best-effort as of 2026-06; bump as needed.
-- Not yet compiled. First task after filling stubs: `cargo check` both with and
-  without `--features enrich`.
+- Verify changes with `cargo test --lib`, both with and without
+  `--features enrich`.
 
 ## Methodology note
 
