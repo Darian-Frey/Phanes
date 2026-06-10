@@ -103,7 +103,7 @@ to Concept (D-011). Generator lives in `scaffold.rs`, round-trips through `parse
 **Acceptance:**
 - An egui app with three panels: left file/ideas explorer, centre note
   reader/editor, right idea/provenance/relationship info.
-**Status:** In progress (Phase 4) — `ui` feature + `phanes-ui` binary (eframe 0.34); three-panel window opens over the core
+**Status:** Complete (Phase 4) — `phanes-ui` (eframe 0.34): explorer (folder tree + filter), centre editor, and a right info panel (status/provenance/tags/topics + clickable related)
 **Notes:** Frontend over the same `query`/`indexer` API; invariants unchanged. Related: D-005.
 
 ### F-010 Edit-in-place with re-index on save
@@ -111,7 +111,7 @@ to Concept (D-011). Generator lives in `scaffold.rs`, round-trips through `parse
 **Acceptance:**
 - Editing a note in the centre panel and saving triggers a one-file index pass;
   enrichment fires only on save, under the hash gate (INV-1).
-**Status:** In progress (Phase 4) — View/Edit toggle + explicit Save (button / Ctrl+S) → write + one-file re-index; pending interactive verification
+**Status:** Complete (Phase 4) — View/Edit toggle + explicit Save (button / Ctrl+S) → write + one-file re-index; verified interactively
 **Notes:** Related: D-005.
 
 ### F-011 Tinted table output

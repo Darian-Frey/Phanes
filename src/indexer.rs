@@ -68,7 +68,9 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
 
         let mtime: DateTime<Utc> = entry.metadata()?.modified()?.into();
 
-        // Start from asserted facts only.
+        // Start from asserted facts only. `mut` is used only when enrichment is
+        // compiled in (merge_proposed mutates it); silence the warning otherwise.
+        #[cfg_attr(not(feature = "enrich"), allow(unused_mut))]
         let mut idea = Idea {
             id: id.clone(),
             path: path.to_path_buf(),

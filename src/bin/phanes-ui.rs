@@ -17,7 +17,7 @@ use std::path::{Component, Path, PathBuf};
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use phanes::indexer::{self, IndexOptions};
-use phanes::model::{Idea, Status};
+use phanes::model::{Idea, Provenance, Status};
 use phanes::query::{self, ListItem, SearchFilter};
 use phanes::store::Store;
 
@@ -96,6 +96,7 @@ struct PhanesApp {
     results: Vec<query::Hit>,
     selected: Option<String>,
     selected_idea: Option<Idea>,
+    related: Vec<query::Hit>,
     // centre editor
     mode: Mode,
     buffer: String,       // raw file content of the selected note (editable)
@@ -107,7 +108,12 @@ struct PhanesApp {
 impl PhanesApp {
     fn new(root: PathBuf) -> Self {
         let (store, error, tree) = match Store::open(&root.join(".phanes").join("index.db")) {
-            Ok(store) => {
+            Ok(mut store) => {
+                // Index the folder on startup so the UI reflects the current
+                // notes even on a never-indexed folder. Cheap: hash-gated, and
+                // no enrichment (that stays opt-in, CLI-only).
+                let opts = IndexOptions { enrich: false, force: false };
+                let _ = indexer::run(&mut store, &root, &opts);
                 let items = query::list(&store).unwrap_or_default();
                 let tree = build_tree(&items, &root);
                 (Some(store), None, tree)
@@ -123,6 +129,7 @@ impl PhanesApp {
             results: Vec::new(),
             selected: None,
             selected_idea: None,
+            related: Vec::new(),
             mode: Mode::View,
             buffer: String::new(),
             saved: String::new(),
@@ -150,7 +157,13 @@ impl PhanesApp {
     /// Select a note by id: load its record and its raw file into the buffer.
     /// (Switching notes discards unsaved edits — the dirty marker warns first.)
     fn select(&mut self, id: String) {
-        let idea = self.store.as_ref().and_then(|s| query::get(s, &id).ok().flatten());
+        let (idea, related) = match self.store.as_ref() {
+            Some(s) => (
+                query::get(s, &id).ok().flatten(),
+                query::related(s, &id).unwrap_or_default(),
+            ),
+            None => (None, Vec::new()),
+        };
         self.buffer = match &idea {
             Some(i) => std::fs::read_to_string(&i.path)
                 .unwrap_or_else(|e| format!("<could not read {}: {e}>", i.path.display())),
@@ -158,6 +171,7 @@ impl PhanesApp {
         };
         self.saved = self.buffer.clone();
         self.selected_idea = idea;
+        self.related = related;
         self.selected = Some(id);
         self.mode = Mode::View;
         self.status_msg = None;
@@ -190,12 +204,16 @@ impl PhanesApp {
         let Some(store) = &self.store else { return };
         let items = query::list(store).unwrap_or_default();
         let tree = build_tree(&items, &self.root);
-        let idea = self
-            .selected
-            .as_ref()
-            .and_then(|id| query::get(store, id).ok().flatten());
+        let (idea, related) = match self.selected.as_ref() {
+            Some(id) => (
+                query::get(store, id).ok().flatten(),
+                query::related(store, id).unwrap_or_default(),
+            ),
+            None => (None, Vec::new()),
+        };
         self.tree = tree;
         self.selected_idea = idea;
+        self.related = related;
     }
 }
 
@@ -220,7 +238,11 @@ impl eframe::App for PhanesApp {
                 let mut clicked = None;
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if self.filter.trim().is_empty() {
-                        render_tree(ui, &self.tree, &self.selected, &mut clicked);
+                        if self.tree.dirs.is_empty() && self.tree.files.is_empty() {
+                            ui.weak(format!("no notes in {}", self.root.display()));
+                        } else {
+                            render_tree(ui, &self.tree, &self.selected, &mut clicked);
+                        }
                     } else if self.results.is_empty() {
                         ui.weak("no matches");
                     } else {
@@ -244,24 +266,89 @@ impl eframe::App for PhanesApp {
             self.select(id);
         }
 
-        // --- right: info (filled out in a later step) ---
-        egui::Panel::right("info")
+        // --- right: info (the GUI counterpart of `show`) ---
+        let right = egui::Panel::right("info")
             .resizable(true)
             .default_size(300.0)
             .show_inside(ui, |ui| {
                 ui.heading("Info");
                 ui.separator();
-                match &self.selected {
-                    Some(id) => {
-                        ui.label(format!("id: {id}"));
-                        ui.add_space(6.0);
-                        ui.weak("(provenance · relationships — coming next)");
-                    }
+                let mut clicked = None;
+                match &self.selected_idea {
                     None => {
                         ui.weak("(select a note)");
                     }
+                    Some(idea) => {
+                        ui.horizontal(|ui| {
+                            ui.strong("status");
+                            ui.colored_label(
+                                status_color(idea.status.value),
+                                idea.status.value.as_str(),
+                            );
+                            prov_badge(ui, idea.status.source);
+                        });
+                        if let Some(date) = idea.last_reviewed {
+                            ui.label(format!("reviewed:  {date}"));
+                        }
+                        ui.label(format!("modified:  {}", idea.mtime.format("%Y-%m-%d")));
+
+                        if let Some(summary) = &idea.summary {
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                ui.strong("summary");
+                                prov_badge(ui, summary.source);
+                            });
+                            ui.label(&summary.value);
+                        }
+
+                        if !idea.tags.is_empty() {
+                            ui.add_space(6.0);
+                            ui.strong("tags");
+                            ui.horizontal_wrapped(|ui| {
+                                for t in &idea.tags {
+                                    match t.source {
+                                        Provenance::Asserted => {
+                                            ui.label(&t.value);
+                                        }
+                                        Provenance::Proposed => {
+                                            ui.colored_label(PROPOSED, format!("~{}", t.value));
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        if !idea.topics.is_empty() {
+                            ui.add_space(6.0);
+                            ui.strong("topics");
+                            ui.horizontal_wrapped(|ui| {
+                                for topic in &idea.topics {
+                                    ui.weak(topic);
+                                }
+                            });
+                        }
+
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.strong("Related");
+                        if self.related.is_empty() {
+                            ui.weak("none");
+                        } else {
+                            for h in &self.related {
+                                let how = h.snippet.as_deref().unwrap_or("");
+                                let text = egui::RichText::new(format!("{}  ({how})", h.title))
+                                    .color(status_color(h.status));
+                                if ui.selectable_label(false, text).clicked() {
+                                    clicked = Some(h.id.clone());
+                                }
+                            }
+                        }
+                    }
                 }
+                clicked
             });
+        if let Some(id) = right.inner {
+            self.select(id);
+        }
 
         // --- centre: editor ---
         let central = egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -335,6 +422,22 @@ fn render_tree(ui: &mut egui::Ui, tree: &Tree, selected: &Option<String>, clicke
         let text = egui::RichText::new(&f.title).color(status_color(f.status));
         if ui.selectable_label(is_selected, text).clicked() {
             *clicked = Some(f.id.clone());
+        }
+    }
+}
+
+/// Colour for proposed (model-inferred) values, kept visually distinct from
+/// asserted ones — the GUI half of INV-2.
+const PROPOSED: egui::Color32 = egui::Color32::from_rgb(225, 200, 110);
+
+/// A small provenance flag shown next to a field (status, summary).
+fn prov_badge(ui: &mut egui::Ui, source: Provenance) {
+    match source {
+        Provenance::Asserted => {
+            ui.weak("(asserted)");
+        }
+        Provenance::Proposed => {
+            ui.colored_label(PROPOSED, "(proposed)");
         }
     }
 }

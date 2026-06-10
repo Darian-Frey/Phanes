@@ -51,8 +51,8 @@ re-index of an unchanged corpus costs ~zero model calls.
 **Status:** In progress
 **Features delivered:** F-009, F-010
 **Deliverables:**
-- [x] egui three-panel scaffold: explorer / editor / info ([D-005](DECISIONS.md)) — window opens over the core (`phanes-ui`)
-- [ ] edit-in-place; save → one-file re-index (preserves INV-1)
+- [x] egui three-panel app: explorer (folder tree + filter), editor, info panel ([D-005](DECISIONS.md))
+- [x] edit-in-place; save → one-file re-index (preserves INV-1)
 - [ ] `new` template polish; per-idea `open` in `$EDITOR`
 - [ ] graph/map view of the relationship layer (petgraph export, or a TUI)
 - [ ] embedding-based semantic "near this" search as a second enrichment

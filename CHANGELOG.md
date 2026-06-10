@@ -30,10 +30,17 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   collapsing folder tree of indexed notes (status-tinted), a filter box backed by
   `query::search`, and click-to-select that drives the other panels. Backed by a
   new `query::list`.
-- F-010 (in progress) Centre editor — View (rendered markdown via
-  `egui_commonmark`) / Edit (raw textarea) toggle; explicit Save (button or
-  Ctrl+S) writes the file and runs a one-file `indexer::run`, then refreshes the
-  tree and selection. Enrichment never fires here (INV-1).
+- F-010 Centre editor — View (rendered markdown via `egui_commonmark`) / Edit
+  (raw textarea) toggle; explicit Save (button or Ctrl+S) writes the file and
+  runs a one-file `indexer::run`, then refreshes the tree and selection.
+  Enrichment never fires here (INV-1).
+- F-009 Right info panel — the GUI counterpart of `show`: status with an
+  asserted/proposed badge, review/modified dates, summary, tags (proposed tags
+  marked), topics, and the `related` list (links + shared-tag neighbours) with
+  click-to-navigate. The three-panel UI is feature-complete.
+- `phanes-ui` indexes its root folder on startup (hash-gated, no enrichment), so
+  it works when pointed at a never-indexed folder; shows an empty-state hint when
+  a folder has no notes.
 - F-011 Tinted bordered table output (`tabled` + `owo-colors`, TTY-gated).
 - `Status` enum gains `Concept` and `Draft` variants (D-007), kept in lockstep
   with `grammars/idea_extract.gbnf`.
@@ -42,6 +49,8 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   README and ROADMAP brought to the standard's shape.
 
 ### Fixed
+- Silenced the indexer's conditional `unused_mut` warning — the `idea` binding is
+  only mutated when `--features enrich` is compiled in.
 - Wikilink extraction no longer mistakes TOML table-arrays (`[[shaft]]`) or
   inline code spans for links — it now skips fenced code blocks and code spans
   via pulldown-cmark's offset iterator. (To be backfilled as BUG-001 when
