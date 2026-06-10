@@ -1,8 +1,12 @@
 use anyhow::Result;
 use clap::Parser;
+use owo_colors::{OwoColorize, Stream};
+use tabled::builder::Builder;
+use tabled::settings::Style;
 
 use phanes::cli::{Cli, Command};
 use phanes::indexer::{self, IndexOptions};
+use phanes::model::Status;
 use phanes::query::{self, SearchFilter};
 use phanes::store::Store;
 
@@ -46,9 +50,53 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Render hits as a bordered table with colour-tinted statuses. The "match"
+/// column is only shown when at least one hit carries an FTS snippet (i.e. for
+/// `search`, not `stale`).
 fn print_hits(hits: &[query::Hit]) {
-    // TODO(claude-code): swap for a tabled::Table with owo-colors status tints.
+    if hits.is_empty() {
+        println!("no matches.");
+        return;
+    }
+
+    let show_snippet = hits.iter().any(|h| h.snippet.is_some());
+
+    let mut builder = Builder::new();
+    let mut header = vec!["status".to_string(), "id".to_string(), "title".to_string()];
+    if show_snippet {
+        header.push("match".to_string());
+    }
+    builder.push_record(header);
+
     for h in hits {
-        println!("[{}] {} — {}", h.status.as_str(), h.id, h.title);
+        let mut row = vec![tint_status(h.status), h.id.clone(), h.title.clone()];
+        if show_snippet {
+            // Snippets can span lines; keep each row on one line.
+            row.push(h.snippet.clone().unwrap_or_default().replace('\n', " "));
+        }
+        builder.push_record(row);
+    }
+
+    let mut table = builder.build();
+    table.with(Style::rounded());
+    println!("{table}");
+    println!("{} idea(s).", hits.len());
+}
+
+/// Status label tinted by lifecycle stage. Colour is emitted only when stdout is
+/// a terminal (via `if_supports_color`), so piped/redirected output stays clean;
+/// the `ansi` feature on `tabled` keeps the coloured cells aligned.
+fn tint_status(status: Status) -> String {
+    let label = status.as_str();
+    match status {
+        Status::Concept => label.if_supports_color(Stream::Stdout, |t| t.cyan()).to_string(),
+        Status::Draft => label.if_supports_color(Stream::Stdout, |t| t.blue()).to_string(),
+        Status::Active => label.if_supports_color(Stream::Stdout, |t| t.green()).to_string(),
+        Status::Dormant => label.if_supports_color(Stream::Stdout, |t| t.yellow()).to_string(),
+        Status::Complete => label.if_supports_color(Stream::Stdout, |t| t.bright_green()).to_string(),
+        Status::Superseded => label.if_supports_color(Stream::Stdout, |t| t.magenta()).to_string(),
+        Status::Archived | Status::Unknown => {
+            label.if_supports_color(Stream::Stdout, |t| t.bright_black()).to_string()
+        }
     }
 }
