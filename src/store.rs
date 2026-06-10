@@ -3,7 +3,7 @@
 //! instant and offline.
 
 use anyhow::Result;
-use rusqlite::Connection;
+use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 
 use crate::model::Idea;
@@ -28,25 +28,252 @@ impl Store {
 
     /// Stored hash for a path, if indexed. Used to skip unchanged files so
     /// enrichment never re-runs needlessly.
-    pub fn hash_for_path(&self, _path: &str) -> Result<Option<String>> {
-        // SELECT content_hash FROM ideas WHERE path = ?1
-        todo!()
+    pub fn hash_for_path(&self, path: &str) -> Result<Option<String>> {
+        let hash = self
+            .conn
+            .query_row(
+                "SELECT content_hash FROM ideas WHERE path = ?1",
+                params![path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(hash)
     }
 
     /// Insert or replace one idea and its tags/topics/links atomically.
     /// Wrap in a transaction; replace child rows wholesale (delete-then-insert)
     /// and re-sync the FTS row.
-    pub fn upsert(&mut self, _idea: &Idea) -> Result<()> {
-        // INSERT OR REPLACE INTO ideas (...) VALUES (...);
-        // DELETE FROM tags   WHERE idea_id = ?; then INSERT each (tag, source);
-        // DELETE FROM topics WHERE idea_id = ?; then INSERT each topic;
-        // DELETE FROM links  WHERE src_id  = ?; then INSERT each dst_id;
-        // DELETE FROM ideas_fts WHERE id = ?; then INSERT (id,title,summary,body).
-        todo!()
+    ///
+    /// Provenance is written alongside every value that can carry it
+    /// (`status_source`, `summary_source`, per-tag `source`) so the
+    /// proposed-vs-asserted boundary survives a round trip through SQLite.
+    pub fn upsert(&mut self, idea: &Idea) -> Result<()> {
+        let path = idea.path.to_string_lossy().into_owned();
+        let mtime = idea.mtime.to_rfc3339();
+        let last_reviewed = idea.last_reviewed.map(|d| d.to_string());
+        let (summary, summary_source) = match &idea.summary {
+            Some(s) => (Some(s.value.clone()), Some(s.source.as_str())),
+            None => (None, None),
+        };
+
+        let tx = self.conn.transaction()?;
+
+        tx.execute(
+            "INSERT OR REPLACE INTO ideas
+                (id, path, title, status, status_source,
+                 summary, summary_source, last_reviewed, mtime, content_hash, body)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                idea.id,
+                path,
+                idea.title,
+                idea.status.value.as_str(),
+                idea.status.source.as_str(),
+                summary,
+                summary_source,
+                last_reviewed,
+                mtime,
+                idea.content_hash,
+                idea.body,
+            ],
+        )?;
+
+        // Replace child rows wholesale. (The REPLACE above may already have
+        // cascade-deleted these; deleting again is a harmless no-op and keeps
+        // the intent explicit and independent of REPLACE's cascade behaviour.)
+        // OR IGNORE on insert absorbs duplicates within a single document
+        // (e.g. the same wikilink or tag written twice).
+        tx.execute("DELETE FROM tags   WHERE idea_id = ?1", params![idea.id])?;
+        tx.execute("DELETE FROM topics WHERE idea_id = ?1", params![idea.id])?;
+        tx.execute("DELETE FROM links  WHERE src_id  = ?1", params![idea.id])?;
+
+        {
+            let mut stmt = tx
+                .prepare("INSERT OR IGNORE INTO tags (idea_id, tag, source) VALUES (?1, ?2, ?3)")?;
+            for t in &idea.tags {
+                stmt.execute(params![idea.id, t.value, t.source.as_str()])?;
+            }
+        }
+        {
+            let mut stmt =
+                tx.prepare("INSERT OR IGNORE INTO topics (idea_id, topic) VALUES (?1, ?2)")?;
+            for topic in &idea.topics {
+                stmt.execute(params![idea.id, topic])?;
+            }
+        }
+        {
+            let mut stmt =
+                tx.prepare("INSERT OR IGNORE INTO links (src_id, dst_id) VALUES (?1, ?2)")?;
+            for dst in &idea.links {
+                stmt.execute(params![idea.id, dst])?;
+            }
+        }
+
+        // ideas_fts is a virtual table with no foreign key, so the cascade does
+        // not reach it — sync it by hand.
+        tx.execute("DELETE FROM ideas_fts WHERE id = ?1", params![idea.id])?;
+        tx.execute(
+            "INSERT INTO ideas_fts (id, title, summary, body) VALUES (?1, ?2, ?3, ?4)",
+            params![idea.id, idea.title, summary, idea.body],
+        )?;
+
+        tx.commit()?;
+        Ok(())
     }
 
     /// Remove ideas whose source file no longer exists (called after a walk).
-    pub fn prune_missing(&mut self, _seen_ids: &[String]) -> Result<usize> {
-        todo!()
+    /// `seen_ids` are the ids encountered this pass; anything else is stale and
+    /// is deleted. The foreign-key cascade clears tags/topics/links; the FTS
+    /// virtual table is cleaned manually. Returns the number of ideas removed.
+    pub fn prune_missing(&mut self, seen_ids: &[String]) -> Result<usize> {
+        let tx = self.conn.transaction()?;
+
+        // Stage the surviving ids in a temp table so the NOT IN check scales and
+        // we avoid building a giant SQL string.
+        tx.execute("CREATE TEMP TABLE IF NOT EXISTS _seen (id TEXT PRIMARY KEY)", [])?;
+        tx.execute("DELETE FROM _seen", [])?;
+        {
+            let mut stmt = tx.prepare("INSERT OR IGNORE INTO _seen (id) VALUES (?1)")?;
+            for id in seen_ids {
+                stmt.execute(params![id])?;
+            }
+        }
+
+        // Delete ideas first (cascade reaches tags/topics/links), then the FTS
+        // rows for those same ids.
+        let pruned = tx.execute("DELETE FROM ideas WHERE id NOT IN (SELECT id FROM _seen)", [])?;
+        tx.execute("DELETE FROM ideas_fts WHERE id NOT IN (SELECT id FROM _seen)", [])?;
+
+        tx.commit()?;
+        Ok(pruned)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Sourced, Status};
+    use chrono::{NaiveDate, TimeZone, Utc};
+    use std::path::PathBuf;
+
+    fn mem_store() -> Store {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        Store { conn }
+    }
+
+    fn sample_idea() -> Idea {
+        Idea {
+            id: "spatial-canvas".into(),
+            path: PathBuf::from("/tmp/ideas/spatial-canvas.md"),
+            title: "Spatial Canvas".into(),
+            status: Sourced::asserted(Status::Active),
+            summary: Some(Sourced::proposed("A pan-and-zoom canvas for ideas.".into())),
+            // one asserted tag, one proposed — provenance must survive the round trip.
+            tags: vec![
+                Sourced::asserted("ui".into()),
+                Sourced::proposed("graph".into()),
+            ],
+            topics: vec!["visualization".into()],
+            last_reviewed: NaiveDate::from_ymd_opt(2026, 5, 28),
+            mtime: Utc.with_ymd_and_hms(2026, 6, 10, 12, 0, 0).unwrap(),
+            content_hash: "hash-v1".into(),
+            body: "nodes and edges and links on a canvas".into(),
+            // duplicate target on purpose: INSERT OR IGNORE must collapse it.
+            links: vec!["llm-idea-graph".into(), "llm-idea-graph".into()],
+        }
+    }
+
+    fn count(store: &Store, sql: &str) -> i64 {
+        store.conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn upsert_then_hash_lookup_and_children() {
+        let mut store = mem_store();
+        store.upsert(&sample_idea()).unwrap();
+
+        assert_eq!(
+            store
+                .hash_for_path("/tmp/ideas/spatial-canvas.md")
+                .unwrap()
+                .as_deref(),
+            Some("hash-v1")
+        );
+        assert_eq!(store.hash_for_path("/nope.md").unwrap(), None);
+
+        // provenance preserved per tag
+        assert_eq!(
+            count(&store, "SELECT count(*) FROM tags WHERE source='asserted'"),
+            1
+        );
+        assert_eq!(
+            count(&store, "SELECT count(*) FROM tags WHERE source='proposed'"),
+            1
+        );
+        // duplicate link collapsed to one row
+        assert_eq!(count(&store, "SELECT count(*) FROM links"), 1);
+        assert_eq!(count(&store, "SELECT count(*) FROM topics"), 1);
+        // status provenance column written
+        assert_eq!(
+            count(&store, "SELECT count(*) FROM ideas WHERE status_source='asserted'"),
+            1
+        );
+        // FTS is searchable
+        assert_eq!(
+            count(&store, "SELECT count(*) FROM ideas_fts WHERE ideas_fts MATCH 'nodes'"),
+            1
+        );
+    }
+
+    #[test]
+    fn reupsert_replaces_children_without_leftovers() {
+        let mut store = mem_store();
+        store.upsert(&sample_idea()).unwrap();
+
+        let mut changed = sample_idea();
+        changed.content_hash = "hash-v2".into();
+        changed.tags = vec![Sourced::asserted("ui".into())]; // dropped the proposed tag
+        store.upsert(&changed).unwrap();
+
+        // exactly one ideas row (REPLACE, not a second insert)
+        assert_eq!(count(&store, "SELECT count(*) FROM ideas"), 1);
+        assert_eq!(
+            store
+                .hash_for_path("/tmp/ideas/spatial-canvas.md")
+                .unwrap()
+                .as_deref(),
+            Some("hash-v2")
+        );
+        // stale proposed tag is gone, no leftovers
+        assert_eq!(count(&store, "SELECT count(*) FROM tags"), 1);
+    }
+
+    #[test]
+    fn prune_removes_unseen_ideas_and_fts() {
+        let mut store = mem_store();
+        store.upsert(&sample_idea()).unwrap();
+
+        // nothing seen this pass => the idea is stale and pruned
+        let pruned = store.prune_missing(&[]).unwrap();
+        assert_eq!(pruned, 1);
+        assert_eq!(store.hash_for_path("/tmp/ideas/spatial-canvas.md").unwrap(), None);
+        // cascade + manual FTS cleanup leave nothing behind
+        assert_eq!(count(&store, "SELECT count(*) FROM tags"), 0);
+        assert_eq!(count(&store, "SELECT count(*) FROM links"), 0);
+        assert_eq!(count(&store, "SELECT count(*) FROM ideas_fts"), 0);
+    }
+
+    #[test]
+    fn prune_keeps_seen_ideas() {
+        let mut store = mem_store();
+        store.upsert(&sample_idea()).unwrap();
+
+        let pruned = store.prune_missing(&["spatial-canvas".to_string()]).unwrap();
+        assert_eq!(pruned, 0);
+        assert!(store
+            .hash_for_path("/tmp/ideas/spatial-canvas.md")
+            .unwrap()
+            .is_some());
     }
 }
