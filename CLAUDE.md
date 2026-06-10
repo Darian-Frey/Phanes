@@ -48,8 +48,17 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   with hash gate and provenance merge, the enrichment HTTP client, and the CLI.
   Compiles and passes 26 lib tests with and without `--features enrich`. Every
   command body is implemented — no `todo!()` remains.
-- **Not yet built:** the egui three-panel UI (Phase 4, F-009/F-010) and
-  enrichment wiring (Phase 3, F-008 — client exists; see the
+- **In progress:** the egui three-panel UI (Phase 4, F-009/F-010). The `ui`
+  feature + `src/bin/phanes-ui.rs` (eframe 0.34) open a three-panel window over
+  the core. Done: left **explorer** (folder tree + filter via `query::search` +
+  click-to-select, backed by `query::list`) and centre **editor** (View via
+  `egui_commonmark` / Edit raw toggle; Save button or Ctrl+S → write file +
+  one-file `indexer::run`, enrichment off per INV-1). Next: right **info** panel
+  (provenance + relationships via `query::get`/`related`). Build/run with
+  `cargo run --features ui --bin phanes-ui -- ideas`. Note eframe 0.34's `App`
+  trait uses `fn ui(&mut self, ui: &mut egui::Ui, ..)` (not `update`), and panels
+  are `Panel::left/right(...).show_inside(ui, ..)`.
+- **Not yet built:** enrichment wiring (Phase 3, F-008 — client exists; see the
   enrichment-server-gap note for the llama.cpp-vs-OpenAI protocol decision).
 
 ## Suggested implementation order

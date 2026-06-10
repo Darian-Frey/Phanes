@@ -10,6 +10,13 @@ repository = "https://github.com/Darian-Frey/phanes"
 name = "phanes"
 path = "src/main.rs"
 
+# The three-panel desktop UI. Only built with `--features ui`, so the default
+# CLI build pulls in no egui/windowing stack.
+[[bin]]
+name = "phanes-ui"
+path = "src/bin/phanes-ui.rs"
+required-features = ["ui"]
+
 [lib]
 name = "phanes"
 path = "src/lib.rs"
@@ -32,6 +39,11 @@ owo-colors    = { version = "4", features = ["supports-colors"] }   # tint only 
 # Enrichment is opt-in. Pulls in nothing unless the `enrich` feature is on.
 reqwest       = { version = "0.12", features = ["json", "blocking"], optional = true }
 
+# Desktop UI is opt-in. Pulls in the egui/eframe stack only under `ui`.
+eframe        = { version = "0.34", optional = true }
+egui_commonmark = { version = "0.23", optional = true }   # must track egui 0.34
+
 [features]
 default = []
 enrich  = ["dep:reqwest"]
+ui      = ["dep:eframe", "dep:egui_commonmark"]

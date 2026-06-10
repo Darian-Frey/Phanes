@@ -24,6 +24,16 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   Status: Concept (D-011), `--tag` values as asserted frontmatter, refuses to
   overwrite, then indexes and shows it. Completes Phase 2 — no command bodies
   remain stubbed.
+- F-009 (in progress) Desktop UI — a `ui` feature and a `phanes-ui` binary
+  (eframe 0.34) opening a three-panel window over the core; the default CLI build
+  stays egui-free (`required-features`). Left explorer is functional: a
+  collapsing folder tree of indexed notes (status-tinted), a filter box backed by
+  `query::search`, and click-to-select that drives the other panels. Backed by a
+  new `query::list`.
+- F-010 (in progress) Centre editor — View (rendered markdown via
+  `egui_commonmark`) / Edit (raw textarea) toggle; explicit Save (button or
+  Ctrl+S) writes the file and runs a one-file `indexer::run`, then refreshes the
+  tree and selection. Enrichment never fires here (INV-1).
 - F-011 Tinted bordered table output (`tabled` + `owo-colors`, TTY-gated).
 - `Status` enum gains `Concept` and `Draft` variants (D-007), kept in lockstep
   with `grammars/idea_extract.gbnf`.

@@ -33,6 +33,17 @@ pub struct SearchFilter {
     pub limit: usize,
 }
 
+/// One indexed idea, enough to render and group in the UI explorer.
+#[derive(Debug, Clone)]
+pub struct ListItem {
+    pub id: String,
+    pub title: String,
+    pub status: Status,
+    /// The note's stored (root-prefixed) path; the explorer strips the root to
+    /// build the folder tree.
+    pub path: String,
+}
+
 /// Full-text search with optional metadata filters.
 ///
 /// The query text is rewritten into an FTS5 MATCH expression by [`fts_match`]
@@ -107,6 +118,24 @@ pub fn stale(store: &Store, days: i64) -> Result<Vec<Hit>> {
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(hits)
+}
+
+/// Every indexed idea, ordered by path. Powers the UI explorer's folder tree.
+pub fn list(store: &Store) -> Result<Vec<ListItem>> {
+    let mut stmt = store
+        .conn
+        .prepare("SELECT id, title, status, path FROM ideas ORDER BY path")?;
+    let items = stmt
+        .query_map([], |r| {
+            Ok(ListItem {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                status: status_from_row(r.get::<_, String>(2)?),
+                path: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(items)
 }
 
 /// Rewrite free text into an FTS5 MATCH expression: each whitespace-separated
@@ -517,5 +546,16 @@ mod tests {
         assert_eq!(got.topics, vec!["viz"]);
 
         assert!(get(&store, "missing").unwrap().is_none());
+    }
+
+    #[test]
+    fn list_returns_all_ideas_with_paths() {
+        let store = related_store(); // alpha, beta, gamma, delta
+        let items = list(&store).unwrap();
+        assert_eq!(items.len(), 4);
+        let alpha = items.iter().find(|i| i.id == "alpha").unwrap();
+        assert_eq!(alpha.title, "Alpha");
+        assert_eq!(alpha.status, Status::Active);
+        assert_eq!(alpha.path, "/ideas/alpha.md");
     }
 }

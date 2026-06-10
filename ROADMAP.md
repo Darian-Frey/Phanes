@@ -48,10 +48,10 @@ re-index of an unchanged corpus costs ~zero model calls.
 
 ## Phase 4 — Desktop UI and later (not fully committed)
 **Goal:** A three-panel egui app over the core, plus a spatial relationship view.
-**Status:** Not started
+**Status:** In progress
 **Features delivered:** F-009, F-010
 **Deliverables:**
-- [ ] egui three-panel scaffold: explorer / editor / info ([D-005](DECISIONS.md))
+- [x] egui three-panel scaffold: explorer / editor / info ([D-005](DECISIONS.md)) — window opens over the core (`phanes-ui`)
 - [ ] edit-in-place; save → one-file re-index (preserves INV-1)
 - [ ] `new` template polish; per-idea `open` in `$EDITOR`
 - [ ] graph/map view of the relationship layer (petgraph export, or a TUI)
