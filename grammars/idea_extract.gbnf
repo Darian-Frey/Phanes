@@ -1,0 +1,19 @@
+# Constrains the enrichment model to a single JSON object matching
+# model::Enrichment. Field order is fixed — constrained decoding handles that
+# fine, and it keeps the grammar small. Keep this in lockstep with model.rs.
+
+root    ::= "{" ws
+            "\"summary\":" ws string "," ws
+            "\"status\":"  ws status "," ws
+            "\"tags\":"    ws strarr "," ws
+            "\"topics\":"  ws strarr ws
+            "}"
+
+status  ::= "\"active\"" | "\"dormant\"" | "\"complete\""
+          | "\"archived\"" | "\"superseded\"" | "\"unknown\""
+
+strarr  ::= "[" ws ( string ( ws "," ws string )* )? ws "]"
+
+string  ::= "\"" char* "\""
+char    ::= [^"\\] | "\\" ["\\/bfnrt]
+ws      ::= [ \t\n]*

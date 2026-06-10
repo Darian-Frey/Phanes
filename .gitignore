@@ -1,0 +1,10 @@
+# Build output
+/target
+
+# Phanes index databases (live inside whatever folder is the --root)
+**/.phanes/
+
+# Your real idea notes stay local; the committed examples/ folder is the
+# documented convention + test fixtures. Drop personal notes in ideas/.
+/ideas/*.md
+!/ideas/.gitkeep

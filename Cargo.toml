@@ -1,0 +1,37 @@
+[package]
+name = "phanes"
+version = "0.1.0"
+edition = "2021"
+description = "Index, search, and surface relationships across a folder of project-idea markdown files."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Darian-Frey/phanes"
+
+[[bin]]
+name = "phanes"
+path = "src/main.rs"
+
+[lib]
+name = "phanes"
+path = "src/lib.rs"
+
+[dependencies]
+clap          = { version = "4", features = ["derive"] }
+rusqlite      = { version = "0.31", features = ["bundled"] }   # FTS5 ships in the amalgamation
+walkdir       = "2"
+gray_matter   = "0.2"
+pulldown-cmark = "0.11"
+chrono        = { version = "0.4", features = ["serde"] }
+blake3        = "1"
+serde         = { version = "1", features = ["derive"] }
+serde_json    = "1"
+anyhow        = "1"
+thiserror     = "1"
+tabled        = "0.15"
+owo-colors    = "4"
+
+# Enrichment is opt-in. Pulls in nothing unless the `enrich` feature is on.
+reqwest       = { version = "0.12", features = ["json", "blocking"], optional = true }
+
+[features]
+default = []
+enrich  = ["dep:reqwest"]
