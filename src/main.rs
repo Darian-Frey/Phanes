@@ -8,6 +8,7 @@ use phanes::cli::{Cli, Command};
 use phanes::indexer::{self, IndexOptions};
 use phanes::model::{Idea, Provenance, Status};
 use phanes::query::{self, SearchFilter};
+use phanes::scaffold;
 use phanes::store::Store;
 
 fn main() -> Result<()> {
@@ -44,10 +45,26 @@ fn main() -> Result<()> {
             None => println!("no idea matches '{id_or_title}'."),
         },
         Command::New { title, tag } => {
-            // TODO(claude-code): write <root>/<slug>.md with frontmatter
-            //   (title, status: active, tags, last_reviewed: today), then index it.
-            let _ = (title, tag);
-            todo!("scaffold a new idea note")
+            let path = cli.root.join(scaffold::filename(&title));
+            if path.exists() {
+                anyhow::bail!(
+                    "a note already exists at {} — pick a different title",
+                    path.display()
+                );
+            }
+            let today = chrono::Utc::now().date_naive();
+            std::fs::write(&path, scaffold::note_body(&title, &tag, today))?;
+            println!("created {}", path.display());
+
+            // Index the new note so it's immediately searchable (no enrichment —
+            // that's opt-in and index-time only). Unchanged files hash-skip.
+            indexer::run(&mut store, &cli.root, &IndexOptions { enrich: false, force: false })?;
+
+            if let Some(id) = query::resolve(&store, &title)? {
+                let idea = query::get(&store, &id)?.expect("the note was just indexed");
+                let related = query::related(&store, &id)?;
+                print_idea(&idea, &related);
+            }
         }
     }
     Ok(())

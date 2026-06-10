@@ -20,6 +20,10 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 - F-006 `show` — single-idea view via `query::resolve` (exact id, exact title,
   or unique substring) and `query::get`, rendering metadata, relationships, and
   per-field provenance flags (F-004 surfaced — INV-2 made visible on the CLI).
+- F-007 `new` — capture a scaffold note (`scaffold.rs`): blockquote header with
+  Status: Concept (D-011), `--tag` values as asserted frontmatter, refuses to
+  overwrite, then indexes and shows it. Completes Phase 2 — no command bodies
+  remain stubbed.
 - F-011 Tinted bordered table output (`tabled` + `owo-colors`, TTY-gated).
 - `Status` enum gains `Concept` and `Draft` variants (D-007), kept in lockstep
   with `grammars/idea_extract.gbnf`.

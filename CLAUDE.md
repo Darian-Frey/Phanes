@@ -39,16 +39,18 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
 
 ## Status: done vs stubbed
 
-- **Done:** the deterministic core and the relationship layer — `store`
-  (`hash_for_path`, `upsert`, `prune_missing`), `parser::parse` (frontmatter
-  **and** the blockquote header — D-008) with link-target→id resolution,
-  `query::{search, stale, related, resolve, get}`, and the `show` command with
-  per-field provenance flags. Plus the original scaffold: types, schema, GBNF
-  grammar, the index control flow with hash gate and provenance merge, the
-  enrichment HTTP client, and the CLI. Compiles and passes 23 lib tests with and
-  without `--features enrich`. `phanes index --root ideas` works end to end.
-- **Stubbed (`todo!()`):** only the `new` command body. The SQL/notes it needs
-  are sketched in doc comments at the stub.
+- **Done:** the whole deterministic CLI (Phases 1–2). `store`
+  (`hash_for_path`, `upsert`, `prune_missing`); `parser::parse` (frontmatter
+  **and** the blockquote header — D-008) with link-target→id resolution;
+  `query::{search, stale, related, resolve, get}`; the `show` command with
+  per-field provenance flags; and `new` (`scaffold.rs`, Status: Concept — D-011).
+  Plus the original scaffold: types, schema, GBNF grammar, the index control flow
+  with hash gate and provenance merge, the enrichment HTTP client, and the CLI.
+  Compiles and passes 26 lib tests with and without `--features enrich`. Every
+  command body is implemented — no `todo!()` remains.
+- **Not yet built:** the egui three-panel UI (Phase 4, F-009/F-010) and
+  enrichment wiring (Phase 3, F-008 — client exists; see the
+  enrichment-server-gap note for the llama.cpp-vs-OpenAI protocol decision).
 
 ## Suggested implementation order
 
@@ -56,8 +58,8 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
 2. ~~`parser::parse`~~ — done; `phanes index` works end to end.
 3. ~~`query::search` + `stale` + `print_hits` table formatting~~ — done.
 4. ~~`query::related` + `resolve` + `get`, then `show`~~ — done.
-5. `new` command (write the scaffold header, then index the new file). ← **next**
-6. Then per D-010: the egui UI (Phase 4) **before** enrichment (Phase 3).
+5. ~~`new` command~~ — done. Phases 1–2 complete.
+6. Per D-010: the egui three-panel UI (Phase 4) **before** enrichment (Phase 3). ← **next**
 
 ## Enrichment setup (the `enrich` feature)
 

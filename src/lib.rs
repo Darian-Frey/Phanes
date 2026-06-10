@@ -12,6 +12,7 @@ pub mod indexer;
 pub mod model;
 pub mod parser;
 pub mod query;
+pub mod scaffold;
 pub mod store;
 
 #[cfg(feature = "enrich")]

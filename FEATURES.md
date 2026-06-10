@@ -82,9 +82,11 @@ than `rg`, without a cloud service.
 **Priority:** Should
 **Acceptance:**
 - `phanes new <title> [--tag ...]` writes a scaffold note with the blockquote
-  header pre-filled (status, last_reviewed: today, tags), then indexes it.
-**Status:** Not started (Phase 2)
-**Notes:** Output must follow the scaffold standard (D-006, D-008).
+  header pre-filled (Status: Concept, last_reviewed: today; tags in frontmatter),
+  refuses to overwrite an existing note, then indexes and shows it.
+**Status:** Complete (Phase 2)
+**Notes:** Output follows the scaffold standard (D-006, D-008); new notes default
+to Concept (D-011). Generator lives in `scaffold.rs`, round-trips through `parser`.
 
 ### F-008 Local-model enrichment (opt-in)
 **Priority:** Should

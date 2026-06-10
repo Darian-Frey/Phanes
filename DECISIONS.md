@@ -291,3 +291,38 @@ only execution order changes.
 **Reversal conditions.** Revisit if UI work stalls, or if enrichment becomes
 needed before the UI (e.g. proposed tags are wanted to make `related` useful on
 the tag-sparse corpus).
+
+### D-011 New notes use the blockquote scaffold format with Status: Concept
+**Decided:** 2026-06-10
+**Recorded:** 2026-06-10
+**Status:** Accepted
+**Authors:** Shane Hartley
+**Related:** F-007, D-006, D-007, D-008
+
+**Context.** The `new` command must emit a note `parser::parse` reads back. The
+original stub suggested YAML frontmatter with `status: active`, but the corpus
+convention (D-008) is the blockquote header, and a freshly captured idea is best
+described as a Concept (D-007, the corpus's most common status).
+
+**Options.**
+- **A. YAML frontmatter, `status: active` (the stub plan).** Rejected: doesn't
+  match the corpus style, and `active` overstates a just-captured idea.
+- **B. Blockquote header, `Status: Concept`; `--tag` values as frontmatter.**
+  Chosen. Tags need a channel the parser reads as asserted, which is frontmatter;
+  with no tags the note is pure blockquote, matching the corpus exactly.
+
+**Decision.** `scaffold::note_body` emits the four-field blockquote header
+(Status: Concept, Provenance, Last reviewed: today, Why) plus the H1 title, with
+an optional YAML frontmatter block for asserted tags. `scaffold::filename`
+sanitizes the title; `new` refuses to overwrite an existing note, then indexes
+and shows it.
+
+**Consequences.**
+- New notes match the corpus style and default to a realistic status.
+- Tag-bearing notes carry a small frontmatter block (the only asserted-tag
+  channel), so they are not byte-identical to pure-blockquote corpus notes.
+- The generator lives in the library (`scaffold.rs`) and is unit-tested by
+  round-tripping through `parser::parse`.
+
+**Reversal conditions.** Revisit if `active` turns out to be the better default,
+or if asserted tags should be expressed some other way than frontmatter.
