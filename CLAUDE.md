@@ -31,7 +31,7 @@ main.rs        parse CLI, open Store, dispatch
  ├─ parser.rs  deterministic extraction (helpers done; parse() assembles them)
  ├─ indexer.rs walk → hash-gate → parse → [enrich] → upsert (control flow done)
  ├─ store.rs   SQLite; open/hash_for_path/upsert/prune_missing (done)
- ├─ query.rs   search + stale (done); related + resolve (stubbed, SQL sketched)
+ ├─ query.rs   search / stale / related / resolve / get (done)
  └─ enrich.rs  llama-server client, behind `enrich` feature (done)
 sql/schema.sql      tables + FTS5 (done — load-bearing, treat as authoritative)
 grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrichment
@@ -39,24 +39,25 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
 
 ## Status: done vs stubbed
 
-- **Done:** the full deterministic core — `store` (`hash_for_path`, `upsert`,
-  `prune_missing`), `parser::parse` (frontmatter **and** the blockquote header —
-  D-008), and `query::search` + `stale` with tinted table output. Plus the
-  original scaffold: types, schema, GBNF grammar, parser helpers, the index
-  control flow with hash gate and provenance merge, the enrichment HTTP client,
-  and the CLI. Compiles and passes 16 lib tests with and without
-  `--features enrich`. `phanes index --root ideas` works end to end.
-- **Stubbed (`todo!()`):** `query::{related, resolve}` and the `show` / `new`
-  command bodies. The SQL each needs is sketched in doc comments at the stub.
+- **Done:** the deterministic core and the relationship layer — `store`
+  (`hash_for_path`, `upsert`, `prune_missing`), `parser::parse` (frontmatter
+  **and** the blockquote header — D-008) with link-target→id resolution,
+  `query::{search, stale, related, resolve, get}`, and the `show` command with
+  per-field provenance flags. Plus the original scaffold: types, schema, GBNF
+  grammar, the index control flow with hash gate and provenance merge, the
+  enrichment HTTP client, and the CLI. Compiles and passes 23 lib tests with and
+  without `--features enrich`. `phanes index --root ideas` works end to end.
+- **Stubbed (`todo!()`):** only the `new` command body. The SQL/notes it needs
+  are sketched in doc comments at the stub.
 
 ## Suggested implementation order
 
 1. ~~`store::hash_for_path` + `store::upsert`~~ — done.
 2. ~~`parser::parse`~~ — done; `phanes index` works end to end.
 3. ~~`query::search` + `stale` + `print_hits` table formatting~~ — done.
-4. `query::related` + `resolve`, then the `show` command. ← **next**
-5. `new` command (write the scaffold header, then index the new file).
-6. Build with `--features enrich`, stand up llama-server, test enrichment.
+4. ~~`query::related` + `resolve` + `get`, then `show`~~ — done.
+5. `new` command (write the scaffold header, then index the new file). ← **next**
+6. Then per D-010: the egui UI (Phase 4) **before** enrichment (Phase 3).
 
 ## Enrichment setup (the `enrich` feature)
 

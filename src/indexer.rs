@@ -84,7 +84,13 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
             mtime,
             content_hash: hash,
             body: parsed.body,
-            links: parsed.link_targets,
+            // Resolve raw link targets to ids so they can join to ideas at query
+            // time (a dangling target simply won't join).
+            links: parsed
+                .link_targets
+                .iter()
+                .map(|t| parser::link_target_to_id(t, rel))
+                .collect(),
         };
 
         // Optional enrichment fills *gaps only*. Proposed values never clobber

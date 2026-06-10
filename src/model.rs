@@ -32,6 +32,15 @@ impl Provenance {
             Provenance::Proposed => "proposed",
         }
     }
+
+    /// Parse a `*_source` column value. Anything other than `proposed` is treated
+    /// as asserted, since asserted is the authoritative default.
+    pub fn from_db(s: &str) -> Self {
+        match s {
+            "proposed" => Provenance::Proposed,
+            _ => Provenance::Asserted,
+        }
+    }
 }
 
 /// A value paired with the source that produced it.

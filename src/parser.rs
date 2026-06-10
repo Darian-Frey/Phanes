@@ -5,7 +5,7 @@
 //! model fills the *gaps* (summary, inferred tags, topics, a status guess); it
 //! never replaces what this module asserts.
 
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
 use chrono::NaiveDate;
@@ -32,6 +32,39 @@ pub struct ParsedDoc {
 /// blake3 of the raw bytes, hex-encoded. The cache key for enrichment.
 pub fn content_hash(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex().to_string()
+}
+
+/// Resolve a raw link target — a relative `.md` path or a `[[wikilink]]`/bare
+/// name — to the id of the idea it points at, matching how [`id_from_path`]
+/// derives ids. Path links are resolved relative to the source file's directory;
+/// wikilinks and bare names are slugified as a stem.
+///
+/// The result may not correspond to any indexed idea (a dangling link); that's
+/// fine — it simply won't join at query time.
+pub fn link_target_to_id(target: &str, source_rel: &Path) -> String {
+    let target = target.trim();
+    if target.to_ascii_lowercase().ends_with(".md") {
+        let base = source_rel.parent().unwrap_or_else(|| Path::new(""));
+        id_from_path(&normalize_lexically(&base.join(target)))
+    } else {
+        id_from_path(Path::new(target))
+    }
+}
+
+/// Resolve `.` and `..` components without touching the filesystem.
+fn normalize_lexically(path: &Path) -> PathBuf {
+    let mut parts: Vec<&std::ffi::OsStr> = Vec::new();
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop();
+            }
+            Component::Normal(c) => parts.push(c),
+            Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    parts.iter().collect()
 }
 
 /// Derive a stable id slug from a path relative to the ideas root.
@@ -350,6 +383,23 @@ body\n";
     fn draft_status_is_recognized() {
         let raw = "> **Status**: Draft v0.2 — pre-submission\n\n# Paper\n";
         assert_eq!(parse("p", raw).status, Some(Status::Draft));
+    }
+
+    #[test]
+    fn link_target_resolves_to_id() {
+        let src = Path::new("Interesting ideas/Locus/VISION.md");
+        // same-directory path link
+        assert_eq!(
+            link_target_to_id("ARCHITECTURE.md", src),
+            "interesting-ideas-locus-architecture"
+        );
+        // parent-relative path link (`..` resolved lexically)
+        assert_eq!(link_target_to_id("../Ideas.md", src), "interesting-ideas-ideas");
+        // wikilink / bare name slugified as a stem
+        assert_eq!(
+            link_target_to_id("Spatial Canvas", Path::new("spatial-canvas.md")),
+            "spatial-canvas"
+        );
     }
 
     #[test]

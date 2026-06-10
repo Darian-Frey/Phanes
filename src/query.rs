@@ -2,13 +2,15 @@
 //! relationships are computed here at query time and never stored, so they
 //! cannot go stale.
 
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow::Result;
-use rusqlite::params_from_iter;
+use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::types::Value;
+use rusqlite::{params, params_from_iter, OptionalExtension};
 
-use crate::model::Status;
+use crate::model::{Idea, Provenance, Sourced, Status};
 use crate::store::Store;
 
 /// One row in any list output.
@@ -124,20 +126,197 @@ fn status_from_row(s: String) -> Status {
     Status::from_str(&s).unwrap_or(Status::Unknown)
 }
 
-/// Related ideas: explicit links first, then shared-tag neighbours ranked by
-/// overlap count. The relationship layer that justifies the tool over `rg`.
-pub fn related(_store: &Store, _id_or_title: &str) -> Result<Vec<Hit>> {
-    // Explicit:  SELECT dst_id FROM links WHERE src_id = ?;
-    // Shared tag: SELECT t2.idea_id, COUNT(*) AS shared
-    //               FROM tags t1 JOIN tags t2 ON t1.tag = t2.tag
-    //              WHERE t1.idea_id = ? AND t2.idea_id <> ?
-    //              GROUP BY t2.idea_id ORDER BY shared DESC;
-    todo!()
+/// Load one fully-resolved idea, with provenance, tags, topics, and links.
+/// `None` if no idea has that id. This is the read used by `show` and (later)
+/// the UI's info panel.
+pub fn get(store: &Store, id: &str) -> Result<Option<Idea>> {
+    let row = store
+        .conn
+        .query_row(
+            "SELECT path, title, status, status_source, summary, summary_source, \
+                    last_reviewed, mtime, content_hash, body \
+               FROM ideas WHERE id = ?1",
+            params![id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,         // path
+                    r.get::<_, String>(1)?,         // title
+                    r.get::<_, String>(2)?,         // status
+                    r.get::<_, String>(3)?,         // status_source
+                    r.get::<_, Option<String>>(4)?, // summary
+                    r.get::<_, Option<String>>(5)?, // summary_source
+                    r.get::<_, Option<String>>(6)?, // last_reviewed
+                    r.get::<_, String>(7)?,         // mtime
+                    r.get::<_, String>(8)?,         // content_hash
+                    r.get::<_, String>(9)?,         // body
+                ))
+            },
+        )
+        .optional()?;
+
+    let Some((path, title, status, status_src, summary, summary_src, last_reviewed, mtime, content_hash, body)) =
+        row
+    else {
+        return Ok(None);
+    };
+
+    let tags = collect(store, "SELECT tag, source FROM tags WHERE idea_id = ?1 ORDER BY source, tag", id, |r| {
+        Ok(Sourced {
+            value: r.get::<_, String>(0)?,
+            source: Provenance::from_db(&r.get::<_, String>(1)?),
+        })
+    })?;
+    let topics = collect(store, "SELECT topic FROM topics WHERE idea_id = ?1 ORDER BY topic", id, |r| {
+        r.get::<_, String>(0)
+    })?;
+    let links = collect(store, "SELECT dst_id FROM links WHERE src_id = ?1 ORDER BY dst_id", id, |r| {
+        r.get::<_, String>(0)
+    })?;
+
+    let summary = summary.map(|value| Sourced {
+        value,
+        source: Provenance::from_db(summary_src.as_deref().unwrap_or("proposed")),
+    });
+
+    Ok(Some(Idea {
+        id: id.to_string(),
+        path: PathBuf::from(path),
+        title,
+        status: Sourced {
+            value: Status::from_str(&status).unwrap_or(Status::Unknown),
+            source: Provenance::from_db(&status_src),
+        },
+        summary,
+        tags,
+        topics,
+        last_reviewed: last_reviewed.and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()),
+        mtime: DateTime::parse_from_rfc3339(&mtime)
+            .map(|d| d.with_timezone(&Utc))
+            .unwrap_or_else(|_| Utc::now()),
+        content_hash,
+        body,
+        links,
+    }))
 }
 
-/// Resolve a user-supplied id or fuzzy title to a single idea id.
-pub fn resolve(_store: &Store, _id_or_title: &str) -> Result<Option<String>> {
-    todo!()
+/// Run a single-`id`-parameter query and collect the mapped rows.
+fn collect<T>(
+    store: &Store,
+    sql: &str,
+    id: &str,
+    f: impl Fn(&rusqlite::Row) -> rusqlite::Result<T>,
+) -> Result<Vec<T>> {
+    let mut stmt = store.conn.prepare(sql)?;
+    let rows = stmt
+        .query_map(params![id], |r| f(r))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Related ideas: explicit links first, then shared-tag neighbours ranked by
+/// overlap count. The relationship layer that justifies the tool over `rg`.
+/// Shared-tag neighbours are computed here at query time and never stored
+/// (INV-3). Returns an empty list if the idea can't be resolved.
+pub fn related(store: &Store, id_or_title: &str) -> Result<Vec<Hit>> {
+    let Some(id) = resolve(store, id_or_title)? else {
+        return Ok(Vec::new());
+    };
+
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    // Explicit out-links, resolved to indexed ideas. A dangling target (not yet
+    // indexed) simply doesn't join, so it's silently skipped.
+    let mut link_stmt = store.conn.prepare(
+        "SELECT i.id, i.title, i.status \
+           FROM links l JOIN ideas i ON i.id = l.dst_id \
+          WHERE l.src_id = ?1 AND l.dst_id <> l.src_id ORDER BY i.title",
+    )?;
+    let links = link_stmt
+        .query_map(params![id], |r| {
+            Ok(Hit {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                status: status_from_row(r.get::<_, String>(2)?),
+                snippet: Some("linked".to_string()),
+                score: None,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for h in links {
+        seen.insert(h.id.clone());
+        out.push(h);
+    }
+
+    // Shared-tag neighbours ranked by overlap, excluding the idea itself and any
+    // neighbour already shown as an explicit link.
+    let mut tag_stmt = store.conn.prepare(
+        "SELECT i.id, i.title, i.status, COUNT(*) AS shared \
+           FROM tags t1 \
+           JOIN tags t2 ON t1.tag = t2.tag AND t2.idea_id <> t1.idea_id \
+           JOIN ideas i ON i.id = t2.idea_id \
+          WHERE t1.idea_id = ?1 \
+          GROUP BY t2.idea_id \
+          ORDER BY shared DESC, i.title ASC",
+    )?;
+    let neighbours = tag_stmt
+        .query_map(params![id], |r| {
+            let shared: i64 = r.get(3)?;
+            Ok(Hit {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                status: status_from_row(r.get::<_, String>(2)?),
+                snippet: Some(format!("{shared} shared tag{}", if shared == 1 { "" } else { "s" })),
+                score: Some(shared),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for h in neighbours {
+        if seen.insert(h.id.clone()) {
+            out.push(h);
+        }
+    }
+
+    Ok(out)
+}
+
+/// Resolve a user-supplied id or fuzzy title to a single idea id. Tries, in
+/// order: exact id, exact title (case-insensitive), then a unique substring
+/// match on title or id. Ambiguous or absent → `None`.
+pub fn resolve(store: &Store, id_or_title: &str) -> Result<Option<String>> {
+    let exact_id: Option<String> = store
+        .conn
+        .query_row("SELECT id FROM ideas WHERE id = ?1", params![id_or_title], |r| r.get(0))
+        .optional()?;
+    if exact_id.is_some() {
+        return Ok(exact_id);
+    }
+
+    let exact_title: Option<String> = store
+        .conn
+        .query_row(
+            "SELECT id FROM ideas WHERE title = ?1 COLLATE NOCASE LIMIT 1",
+            params![id_or_title],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if exact_title.is_some() {
+        return Ok(exact_title);
+    }
+
+    // Unique substring match. LIMIT 2 so we can tell unique from ambiguous.
+    let pattern = format!("%{id_or_title}%");
+    let mut stmt = store.conn.prepare(
+        "SELECT id FROM ideas WHERE title LIKE ?1 COLLATE NOCASE OR id LIKE ?1 COLLATE NOCASE LIMIT 2",
+    )?;
+    let matches = stmt
+        .query_map(params![pattern], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if matches.len() == 1 {
+        Ok(matches.into_iter().next())
+    } else {
+        Ok(None) // zero matches, or ambiguous
+    }
 }
 
 #[cfg(test)]
@@ -246,5 +425,97 @@ mod tests {
         assert_eq!(ids(&hits), vec!["old-synth"]);
         // snippet is absent for stale (drives the table's column choice)
         assert!(hits[0].snippet.is_none());
+    }
+
+    // --- step 4: get / resolve / related ---
+
+    use crate::model::Provenance;
+
+    fn upsert(store: &mut Store, mut idea: Idea, links: &[&str]) {
+        idea.links = links.iter().map(|s| s.to_string()).collect();
+        store.upsert(&idea).unwrap();
+    }
+
+    fn related_store() -> Store {
+        let mut store = mem_store();
+        let today = Utc::now().date_naive();
+        // alpha links to beta; alpha shares "ui" with beta+delta and "spatial"
+        // with gamma+delta.
+        upsert(&mut store, idea("alpha", "Alpha", Status::Active, &["ui", "spatial"], "a", today), &["beta"]);
+        upsert(&mut store, idea("beta", "Beta", Status::Concept, &["ui"], "b", today), &[]);
+        upsert(&mut store, idea("gamma", "Gamma", Status::Concept, &["spatial", "audio"], "c", today), &[]);
+        upsert(&mut store, idea("delta", "Delta", Status::Active, &["ui", "spatial"], "d", today), &[]);
+        store
+    }
+
+    #[test]
+    fn resolve_exact_id_title_and_fuzzy() {
+        let store = related_store();
+        assert_eq!(resolve(&store, "alpha").unwrap().as_deref(), Some("alpha"));
+        // exact title, case-insensitive
+        assert_eq!(resolve(&store, "BETA").unwrap().as_deref(), Some("beta"));
+        // unique substring
+        assert_eq!(resolve(&store, "gam").unwrap().as_deref(), Some("gamma"));
+        // no match
+        assert_eq!(resolve(&store, "nope").unwrap(), None);
+    }
+
+    #[test]
+    fn resolve_ambiguous_substring_is_none() {
+        let mut store = mem_store();
+        let today = Utc::now().date_naive();
+        upsert(&mut store, idea("note-one", "Note One", Status::Active, &[], "x", today), &[]);
+        upsert(&mut store, idea("note-two", "Note Two", Status::Active, &[], "y", today), &[]);
+        // "note" matches both → ambiguous → None
+        assert_eq!(resolve(&store, "note").unwrap(), None);
+    }
+
+    #[test]
+    fn related_links_first_then_shared_tags_ranked() {
+        let store = related_store();
+        let hits = related(&store, "alpha").unwrap();
+        // beta appears once (as the explicit link, not duplicated by its shared
+        // "ui" tag); then delta (2 shared) ranks above gamma (1 shared).
+        assert_eq!(ids(&hits), vec!["beta", "delta", "gamma"]);
+        assert_eq!(hits[0].snippet.as_deref(), Some("linked"));
+        assert_eq!(hits[1].score, Some(2));
+        assert_eq!(hits[2].score, Some(1));
+    }
+
+    #[test]
+    fn related_unresolvable_is_empty() {
+        let store = related_store();
+        assert!(related(&store, "does-not-exist").unwrap().is_empty());
+    }
+
+    #[test]
+    fn related_excludes_self_links() {
+        let mut store = mem_store();
+        let today = Utc::now().date_naive();
+        // a note whose only link points at itself (e.g. a `[[Self]]` wikilink)
+        upsert(&mut store, idea("solo", "Solo", Status::Active, &[], "x", today), &["solo"]);
+        assert!(related(&store, "solo").unwrap().is_empty());
+    }
+
+    #[test]
+    fn get_round_trips_provenance() {
+        let mut store = mem_store();
+        let mut idea = idea("p", "Provenance", Status::Active, &["ui"], "body", Utc::now().date_naive());
+        // add a proposed tag and a proposed summary alongside the asserted tag
+        idea.tags.push(Sourced::proposed("ai".into()));
+        idea.summary = Some(Sourced::proposed("auto summary".into()));
+        idea.topics = vec!["viz".into()];
+        store.upsert(&idea).unwrap();
+
+        let got = get(&store, "p").unwrap().expect("idea exists");
+        assert_eq!(got.status.source, Provenance::Asserted);
+        assert_eq!(got.summary.as_ref().unwrap().source, Provenance::Proposed);
+        let ui = got.tags.iter().find(|t| t.value == "ui").unwrap();
+        let ai = got.tags.iter().find(|t| t.value == "ai").unwrap();
+        assert_eq!(ui.source, Provenance::Asserted);
+        assert_eq!(ai.source, Provenance::Proposed);
+        assert_eq!(got.topics, vec!["viz"]);
+
+        assert!(get(&store, "missing").unwrap().is_none());
     }
 }

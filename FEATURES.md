@@ -60,7 +60,7 @@ than `rg`, without a cloud service.
 - Every field that can originate from the model carries `Asserted | Proposed`.
 - Proposed values fill gaps only and never overwrite asserted ones.
 - Provenance is persisted in the DB and surfaced in `show`.
-**Status:** In progress (types + storage done; surfacing in `show` pending — F-006)
+**Status:** Complete (Phase 2) — surfaced in `show` with per-field asserted/proposed flags
 **Notes:** INV-2. Related: D-002.
 
 ### F-005 Related ideas
@@ -68,7 +68,7 @@ than `rg`, without a cloud service.
 **Acceptance:**
 - `phanes related <id|title>` lists explicit links first, then shared-tag
   neighbours ranked by tag-overlap count.
-**Status:** Not started (Phase 2)
+**Status:** Complete (Phase 2) — link targets resolve to ids; self-links excluded
 **Notes:** Shared-tag links are computed at query time, never stored (INV-3). Related: D-003.
 
 ### F-006 Show single idea
@@ -76,7 +76,7 @@ than `rg`, without a cloud service.
 **Acceptance:**
 - `phanes show <id|title>` renders one idea: metadata, provenance flags per
   field, explicit links, and shared-tag neighbours.
-**Status:** Not started (Phase 2)
+**Status:** Complete (Phase 2) — resolves id-or-fuzzy-title via `query::resolve`
 
 ### F-007 New idea capture
 **Priority:** Should

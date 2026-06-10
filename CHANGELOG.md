@@ -14,6 +14,12 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 - F-002 Full-text search with `--status` / `--tag` / `--stale-days` / `--limit`
   filters, FTS5 ranking, and highlighted snippets.
 - F-003 Stale view (`phanes stale --days N`), oldest first.
+- F-005 `related` — explicit links first, then shared-tag neighbours ranked by
+  overlap; self-links excluded. Link targets (relative `.md` paths and
+  wikilinks) are resolved to ids at index time so they join at query time.
+- F-006 `show` — single-idea view via `query::resolve` (exact id, exact title,
+  or unique substring) and `query::get`, rendering metadata, relationships, and
+  per-field provenance flags (F-004 surfaced — INV-2 made visible on the CLI).
 - F-011 Tinted bordered table output (`tabled` + `owo-colors`, TTY-gated).
 - `Status` enum gains `Concept` and `Draft` variants (D-007), kept in lockstep
   with `grammars/idea_extract.gbnf`.

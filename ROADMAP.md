@@ -25,15 +25,15 @@ see [D-010](DECISIONS.md). Phase numbers are unchanged; only the order of work i
 
 ## Phase 2 — Relationships
 **Goal:** Surface explicit and tag-adjacent relationships; single-idea view.
-**Status:** Not started
-**Features delivered:** F-005, F-006, F-007; completes F-004 surfacing
+**Status:** In progress
+**Features delivered:** F-004 (surfacing), F-005, F-006; F-007 pending
 **Deliverables:**
-- [ ] `links` persistence + dangling-target tolerance (stored; id resolution pending)
-- [ ] `query::related`: explicit links, then shared-tag neighbours ranked by overlap
-- [ ] `query::resolve`: id-or-fuzzy-title → a single id
-- [ ] `show` command rendering metadata, provenance flags, and relationships
+- [x] `links` persistence + dangling-target tolerance; link targets resolved to ids
+- [x] `query::related`: explicit links, then shared-tag neighbours ranked by overlap
+- [x] `query::resolve`: id-or-fuzzy-title → a single id (unique-match)
+- [x] `show` command rendering metadata, provenance flags, and relationships
 - [ ] `new` command (scaffold note, then index it)
-**Acceptance:** `phanes related <idea>` shows linked and tag-adjacent notes.
+**Acceptance:** `phanes related <idea>` shows linked and tag-adjacent notes. ✓ (on tagged/linked corpora)
 
 ## Phase 3 — Enrichment (opt-in)
 **Goal:** Freeform notes gain a proposed summary, tags, topics, and status guess.
