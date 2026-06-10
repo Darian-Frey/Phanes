@@ -1,10 +1,13 @@
 # Build output
 /target
 
-# Phanes index databases (live inside whatever folder is the --root)
+# Phanes index databases (these contain the full body text of every indexed
+# note, so they must never be committed). They live inside whatever folder is
+# the --root, e.g. ideas/.phanes/index.db or ./.phanes/index.db.
 **/.phanes/
 
-# Your real idea notes stay local; the committed examples/ folder is the
-# documented convention + test fixtures. Drop personal notes in ideas/.
-/ideas/*.md
+# Your real idea notes stay local. Ignore EVERYTHING under ideas/ — markdown at
+# any depth, subfolders, images, attachments — keeping only the folder itself.
+# The committed examples/ folder is the documented convention + test fixtures.
+/ideas/**
 !/ideas/.gitkeep
