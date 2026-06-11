@@ -95,8 +95,8 @@ to Concept (D-011). Generator lives in `scaffold.rs`, round-trips through `parse
   proposed summary, tags, topics, and status guess from a local llama-server,
   grammar-constrained to valid JSON.
 - A missing, slow, or malformed response never fails an index pass (INV-4).
-**Status:** Not started (HTTP client done; prompt/grammar tuning pending) (Phase 3)
-**Notes:** Related: D-001, D-002, D-007.
+**Status:** Complete (Phase 3) — OpenAI-compatible client (D-012); live-verified against LM Studio (qwen2.5-7b-instruct) producing proposed summary/tags/topics, with INV-1/2/4 all holding
+**Notes:** Related: D-001, D-002, D-007, D-012.
 
 ### F-009 Three-panel desktop UI
 **Priority:** Should

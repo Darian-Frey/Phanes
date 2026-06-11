@@ -36,7 +36,7 @@ cargo build --release                 # core: deterministic, no model, no HTTP
 cargo build --release --features enrich   # adds the local-model client
 ```
 
-Enrichment talks to a local `llama-server` (llama.cpp) over HTTP — see CLAUDE.md.
+Enrichment talks to a local OpenAI-compatible server (LM Studio / Ollama / llama.cpp `--api`) over HTTP — see CLAUDE.md.
 
 ## Project structure
 

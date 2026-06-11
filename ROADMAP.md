@@ -37,14 +37,14 @@ see [D-010](DECISIONS.md). Phase numbers are unchanged; only the order of work i
 
 ## Phase 3 — Enrichment (opt-in)
 **Goal:** Freeform notes gain a proposed summary, tags, topics, and status guess.
-**Status:** Not started
+**Status:** Complete (2026-06-11)
 **Features delivered:** F-008
 **Deliverables:**
-- [ ] `--features enrich`: llama-server client (done) + prompt and grammar tuning
-- [ ] Provenance surfaced in `show`; proposed tags visibly distinct from asserted
-- [ ] `--force` re-enrich; verify the hash gate skips unchanged files
+- [x] `--features enrich`: OpenAI-compatible client (D-012); prompt + json_schema
+- [x] Provenance surfaced in `show` and the UI; proposed tags visibly distinct (`~`)
+- [x] `--force` re-enrich; hash gate verified to skip unchanged (zero model calls)
 **Acceptance:** freeform notes get a usable summary, tags, and status guess, and a
-re-index of an unchanged corpus costs ~zero model calls.
+re-index of an unchanged corpus costs ~zero model calls. ✓ (live against LM Studio)
 
 ## Phase 4 — Desktop UI and later (not fully committed)
 **Goal:** A three-panel egui app over the core, plus a spatial relationship view.

@@ -1,50 +1,101 @@
-//! Enrichment via a local `llama-server` (llama.cpp). Compiled only under the
-//! `enrich` feature so the default build pulls in no HTTP stack.
+//! Enrichment via a local **OpenAI-compatible** chat server (LM Studio, Ollama,
+//! or llama.cpp's OpenAI mode). Compiled only under the `enrich` feature so the
+//! default build pulls in no HTTP stack.
 //!
-//! The model is treated as a scoped spoke in the hub-and-spoke pattern: it does
-//! one bounded job — read a markdown file, return a small JSON object — and the
-//! deterministic core stays the authority. Output validity is guaranteed by a
-//! GBNF grammar (constrained decoding), not by hoping the model formats JSON
-//! correctly. Temperature is 0 so the same file yields the same extraction.
+//! The model is a scoped spoke in the hub-and-spoke pattern: it does one bounded
+//! job — read a markdown note, return a small JSON object — and the deterministic
+//! core stays the authority. Output validity is constrained by an OpenAI
+//! `response_format` json_schema (mirroring [`model::Enrichment`]), not by hoping
+//! the model formats JSON correctly. Temperature is 0 so the same note yields the
+//! same extraction.
+//!
+//! Endpoint and model id are configurable:
+//!   - `PHANES_LLM_URL`   (default `http://127.0.0.1:1234/v1/chat/completions`)
+//!   - `PHANES_LLM_MODEL` (default `local-model`; LM Studio serves whatever model
+//!      is loaded, so the id is often ignored — pin it for other servers)
+//!
+//! See `D-012` for why this targets the OpenAI-compatible API rather than
+//! llama.cpp's native `/completion` + GBNF (`grammars/idea_extract.gbnf` remains
+//! for that alternative path).
 
 use anyhow::{Context, Result};
 use serde_json::json;
 
 use crate::model::Enrichment;
 
-/// llama-server default endpoint. Override with PHANES_LLAMA_URL.
-const DEFAULT_URL: &str = "http://127.0.0.1:8080/completion";
+const DEFAULT_URL: &str = "http://127.0.0.1:1234/v1/chat/completions";
+const DEFAULT_MODEL: &str = "local-model";
 
-/// The grammar that constrains output to exactly `model::Enrichment`.
-const GRAMMAR: &str = include_str!("../grammars/idea_extract.gbnf");
+const SYSTEM_PROMPT: &str = "You catalogue project-idea notes. Read the note and \
+    return JSON only, matching the schema. summary: one plain sentence describing \
+    what the note is about. status: one of the allowed values. tags: 2-6 short \
+    lowercase keywords. topics: 1-4 broader concept areas.";
 
 fn endpoint() -> String {
-    std::env::var("PHANES_LLAMA_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
+    std::env::var("PHANES_LLM_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
 }
 
-fn build_prompt(title: &str, body: &str) -> String {
-    // Keep it small; the task is light. Truncate very long bodies — the first
-    // ~6k chars carry the gist of an idea note.
-    let body = if body.len() > 6000 { &body[..6000] } else { body };
-    format!(
-        "You catalogue project-idea notes. Read the note and return JSON only.\n\
-         - summary: one sentence, plain.\n\
-         - status: one of active, dormant, complete, archived, superseded, unknown.\n\
-         - tags: 2-6 short lowercase keywords.\n\
-         - topics: 1-4 broader concept areas.\n\n\
-         # {title}\n{body}\n"
-    )
+fn model_id() -> String {
+    std::env::var("PHANES_LLM_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string())
 }
 
-/// Run extraction. Returns `Err` on any transport or parse failure so the
-/// caller can fall back to an asserted-only record.
+/// The `response_format` json_schema that constrains the reply to exactly
+/// [`model::Enrichment`]. Keep the `status` enum in lockstep with
+/// [`crate::model::Status`].
+fn response_format() -> serde_json::Value {
+    json!({
+        "type": "json_schema",
+        "json_schema": {
+            "name": "enrichment",
+            "strict": true,
+            "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["summary", "status", "tags", "topics"],
+                "properties": {
+                    "summary": { "type": "string" },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "concept", "draft", "active", "dormant",
+                            "complete", "archived", "superseded", "unknown"
+                        ]
+                    },
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "topics": { "type": "array", "items": { "type": "string" } }
+                }
+            }
+        }
+    })
+}
+
+/// The note as the user turn. Long bodies are truncated on a char boundary — the
+/// first ~6k chars carry the gist of an idea note.
+fn user_message(title: &str, body: &str) -> String {
+    let body = if body.len() > 6000 {
+        let mut end = 6000;
+        while !body.is_char_boundary(end) {
+            end -= 1;
+        }
+        &body[..end]
+    } else {
+        body
+    };
+    format!("# {title}\n{body}")
+}
+
+/// Run extraction against the local model. Returns `Err` on any transport or
+/// parse failure so the caller can fall back to an asserted-only record (INV-4).
 pub fn enrich(title: &str, body: &str) -> Result<Enrichment> {
     let payload = json!({
-        "prompt": build_prompt(title, body),
-        "grammar": GRAMMAR,
+        "model": model_id(),
+        "messages": [
+            { "role": "system", "content": SYSTEM_PROMPT },
+            { "role": "user", "content": user_message(title, body) }
+        ],
         "temperature": 0.0,
-        "n_predict": 400,
-        "cache_prompt": true
+        "max_tokens": 400,
+        "response_format": response_format()
     });
 
     let client = reqwest::blocking::Client::new();
@@ -52,16 +103,64 @@ pub fn enrich(title: &str, body: &str) -> Result<Enrichment> {
         .post(endpoint())
         .json(&payload)
         .send()
-        .context("POST to llama-server failed (is it running?)")?
+        .context("POST to the local model server failed (is LM Studio / the server running?)")?
         .error_for_status()?;
 
-    // llama.cpp /completion returns { "content": "<the generated text>" , ... }
-    let raw: serde_json::Value = resp.json().context("llama-server returned non-JSON")?;
+    let raw: serde_json::Value = resp.json().context("model server returned non-JSON")?;
     let content = raw
-        .get("content")
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
         .and_then(|c| c.as_str())
-        .context("no `content` field in llama-server response")?;
+        .context("no choices[0].message.content in the model server response")?;
 
+    parse_enrichment(content)
+}
+
+/// Parse the model's JSON reply into an [`Enrichment`]. Split out so it can be
+/// tested without a live server.
+fn parse_enrichment(content: &str) -> Result<Enrichment> {
     serde_json::from_str::<Enrichment>(content.trim())
         .context("model output did not match the Enrichment schema")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::Status;
+
+    #[test]
+    fn parses_a_well_formed_reply() {
+        let content = r#"{"summary":"A spatial canvas for ideas.","status":"active","tags":["ui","spatial"],"topics":["visualization"]}"#;
+        let e = parse_enrichment(content).unwrap();
+        assert_eq!(e.summary, "A spatial canvas for ideas.");
+        assert_eq!(e.status, Status::Active);
+        assert_eq!(e.tags, vec!["ui", "spatial"]);
+        assert_eq!(e.topics, vec!["visualization"]);
+    }
+
+    #[test]
+    fn parses_the_new_concept_status() {
+        let content = r#"{"summary":"x","status":"concept","tags":[],"topics":[]}"#;
+        assert_eq!(parse_enrichment(content).unwrap().status, Status::Concept);
+    }
+
+    #[test]
+    fn tolerates_surrounding_whitespace() {
+        let content = "\n  {\"summary\":\"x\",\"status\":\"draft\",\"tags\":[],\"topics\":[]}  \n";
+        assert!(parse_enrichment(content).is_ok());
+    }
+
+    #[test]
+    fn rejects_malformed_reply() {
+        assert!(parse_enrichment("not json at all").is_err());
+    }
+
+    #[test]
+    fn user_message_truncates_on_char_boundary() {
+        let body = "é".repeat(5000); // 10k bytes, multibyte
+        let msg = user_message("T", &body);
+        assert!(msg.is_char_boundary(msg.len())); // didn't panic / split a char
+    }
 }

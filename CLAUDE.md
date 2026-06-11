@@ -74,17 +74,23 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
 ## Enrichment setup (the `enrich` feature)
 
 The model is a scoped spoke: read one note, return one small JSON object. It is
-not in the hot path and does not need to be clever.
+not in the hot path and does not need to be clever. Targets an OpenAI-compatible
+server (D-012), not llama.cpp native.
 
-- Run a small instruct model under llama.cpp in server mode, e.g.
-  `llama-server -m <model>.gguf --port 8080`.
-- Phanes POSTs to `http://127.0.0.1:8080/completion` (override via
-  `PHANES_LLAMA_URL`) with the GBNF grammar, `temperature: 0`, `n_predict: 400`.
-  Grammar-constrained decoding guarantees schema-valid JSON at the token level.
-- Model choice: the task is light, so the smallest model that reliably fills the
-  schema wins on speed. The existing Qwen 2.5 7B Q4_K_M is fine for CPU on the
-  T1200 (LOW_VRAM); size up only if tag inference disappoints. Confirm the
-  current best small model before settling.
+- Start an OpenAI-compatible server. On this machine: launch the **LM Studio**
+  desktop app, load a model (e.g. Qwen2.5-Coder-14B), and start its local server
+  (Developer tab, or `lms server start` *after* the app is running — the CLI
+  can't bootstrap the daemon headless). Ollama or llama.cpp's `--api` mode work
+  too.
+- `enrich::enrich` POSTs to `http://127.0.0.1:1234/v1/chat/completions` (override
+  `PHANES_LLM_URL`; pin a model with `PHANES_LLM_MODEL`) with `temperature: 0`
+  and a `response_format` json_schema mirroring `model::Enrichment`. The
+  json_schema is the active output constraint; keep its `status` enum in lockstep
+  with `model::Status`. `grammars/idea_extract.gbnf` is retained only for the
+  optional llama.cpp-native path.
+- Run it: `cargo run --features enrich -- index --root <dir> --enrich --force`.
+  A missing/slow/malformed reply never fails the pass (INV-4) — the asserted-only
+  record is kept and the error logged.
 
 ## Conventions
 

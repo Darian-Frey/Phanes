@@ -55,9 +55,10 @@ the model or the network.
 - **query.rs** — read side: `search`, `stale` (done); `related`, `resolve`
   (pending). Deterministic and instant; shared-tag neighbours are a query-time
   JOIN, never stored.
-- **enrich.rs** *(feature `enrich`)* — HTTP client for a local llama-server,
-  output constrained by `grammars/idea_extract.gbnf`, temperature 0. Returns
-  `Result`; the caller logs and degrades on failure.
+- **enrich.rs** *(feature `enrich`)* — HTTP client for a local OpenAI-compatible
+  server (LM Studio / Ollama / llama.cpp `--api`), output constrained by a
+  `response_format` json_schema mirroring `Enrichment`, temperature 0 (D-012).
+  Returns `Result`; the caller logs and degrades on failure.
 - **cli.rs / main.rs** — clap command surface, dispatch, and table rendering.
 
 ## Data flow
@@ -86,7 +87,8 @@ the model or the network.
 - **Offline & instant.** The default build links no HTTP stack; no query path
   performs network or model work.
 - **Build features.** `default` (deterministic core), `enrich` (adds `reqwest` +
-  the llama-server client), `ui` (planned — adds `eframe`/`egui` for F-009/F-010).
+  the OpenAI-compatible model client), `ui` (adds `eframe`/`egui_commonmark` for
+  the three-panel app).
 - **Provenance threading.** Carried from parser → indexer merge → store columns →
   `show` output, end to end.
 

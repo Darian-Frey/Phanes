@@ -326,3 +326,43 @@ and shows it.
 
 **Reversal conditions.** Revisit if `active` turns out to be the better default,
 or if asserted tags should be expressed some other way than frontmatter.
+
+### D-012 Enrichment targets the OpenAI-compatible API, not llama.cpp native
+**Decided:** 2026-06-11
+**Recorded:** 2026-06-11
+**Status:** Accepted
+**Authors:** Shane Hartley
+**Related:** F-008, ARCHITECTURE.md, INV-4
+
+**Context.** `enrich.rs` was written against llama.cpp's native `/completion`
+endpoint with a GBNF grammar, but a 2026-06-10 smoke test found the only local
+stack on the machine is LM Studio, which exposes the **OpenAI-compatible** API
+(`/v1/chat/completions`, structured output via `response_format` json_schema) and
+ships no `llama-server` binary.
+
+**Options.**
+- **A. Install llama.cpp `llama-server`** and keep `enrich.rs` + GBNF unchanged
+  (token-level grammar guarantee). Rejected for now: extra software to install
+  and run; doesn't use the stack already present.
+- **B. Retarget `enrich.rs` to the OpenAI-compatible API** with json_schema
+  structured output. Chosen: works with LM Studio (present), and also Ollama and
+  llama.cpp's own OpenAI mode — far more portable.
+
+**Decision.** `enrich::enrich` POSTs to an OpenAI-compatible chat endpoint
+(default LM Studio `http://127.0.0.1:1234/v1/chat/completions`, override via
+`PHANES_LLM_URL` / `PHANES_LLM_MODEL`) with a `response_format` json_schema that
+mirrors `model::Enrichment`. The reply is `choices[0].message.content`, parsed to
+`Enrichment`. Graceful degradation (INV-4) is unchanged.
+
+**Consequences.**
+- No new software to install; uses the existing LM Studio + model.
+- json_schema is now the active output constraint; `grammars/idea_extract.gbnf`
+  is retained only for the optional llama.cpp-native path. Both must stay in
+  lockstep with `model::Status` (a small ongoing cost — two schema definitions).
+- Enrichment needs an OpenAI-compatible server running; LM Studio's daemon must
+  be started from the desktop app (the `lms` CLI can't bootstrap it headless).
+
+**Reversal conditions.** Revisit if json_schema structured output proves
+unreliable on the chosen server (fall back to A, llama.cpp native + GBNF), or if
+maintaining two schema definitions becomes error-prone (derive one canonical
+schema, e.g. via `schemars`).

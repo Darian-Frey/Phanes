@@ -47,6 +47,21 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 - Project documentation per the Development Documentation Standard: FEATURES.md,
   ARCHITECTURE.md, DECISIONS.md, CHANGELOG.md, LICENSE-MIT, LICENSE-APACHE;
   README and ROADMAP brought to the standard's shape.
+- F-008 Enrichment is live end to end (Phase 3 complete). `phanes index --enrich`
+  (with `--features enrich`) gives changed notes a proposed summary, tags, and
+  topics from a local model; verified against LM Studio (qwen2.5-7b-instruct).
+  Proposed values fill gaps only, never overwrite asserted ones, are never
+  written back to the source files, and the hash gate keeps re-indexing an
+  unchanged corpus at zero model calls (INV-1/2/4 all confirmed). `show` and the
+  UI render proposed values distinctly.
+
+### Changed
+- F-008 Enrichment client retargeted to the OpenAI-compatible API
+  (`/v1/chat/completions` with `response_format` json_schema) instead of
+  llama.cpp's native `/completion` + GBNF (D-012). Works with LM Studio / Ollama /
+  llama.cpp `--api`; env `PHANES_LLM_URL` / `PHANES_LLM_MODEL`. Char-boundary-safe
+  body truncation; graceful degradation unchanged (INV-4). `grammars/idea_extract.gbnf`
+  retained for the optional llama.cpp-native path.
 
 ### Fixed
 - Silenced the indexer's conditional `unused_mut` warning — the `idea` binding is
