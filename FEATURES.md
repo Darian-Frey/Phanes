@@ -1,7 +1,7 @@
 > **Status:** Active
 > **Provenance:** Shane Hartley (owner/architect), Claude (drafting)
-> **Last reviewed:** 2026-06-10
-> **Why this status:** Capability set defined; P1 features shipped, P2–P4 pending.
+> **Last reviewed:** 2026-06-11
+> **Why this status:** Phases 1–2 and the Phase 4 three-panel UI shipped; P3 enrichment pending. Candidate features captured from a 2026-06-11 survey of local-LLM note tools.
 
 # Features
 
@@ -123,7 +123,55 @@ to Concept (D-011). Generator lives in `scaffold.rs`, round-trips through `parse
 
 ## Candidate features (uncommitted)
 
-- Graph/map view of the relationship layer (petgraph export, or a TUI) — Phase 4.
-- Embedding-based semantic "near this" search, as a second enrichment distinct
-  from extraction — Phase 4.
+Ideas not committed to. Most come from a 2026-06-11 survey of local-LLM note
+tools (Reor, Khoj, Smart Connections, InfraNodus, LM Studio). Each graduates to
+an `F-NNN` entry if/when committed. Grouped by how they sit with the invariants:
+most fit **INV-1** (model at index time; queries instant and offline), one (RAG
+chat) does not and is flagged.
+
+### Fits the index-time / proposed model (queries stay instant + offline)
+
+- **Semantic "near this".** Embed each note at index time — a second enrichment
+  spoke beside extraction — and store the vectors. Query-time similarity is
+  deterministic vector math (no model in the query path), so INV-1 holds. Adds a
+  *proposed* "related (semantic)" set beside the deterministic links/shared-tags.
+  Highest payoff; fixes the empty `related` on a tag-sparse corpus. Pairs with
+  D-001/D-003.
+- **Taxonomy-aware proposed tags.** Feed the model the existing asserted-tag
+  vocabulary so proposed tags stay consistent rather than inventing synonyms.
+  Refinement of F-008.
+- **Propose → accept links.** Suggested links (from the model or embeddings) show
+  as *proposed*; one action promotes a link to *asserted* and writes it to the
+  file. Uses the provenance core directly (INV-2) — the Phanes-specific angle no
+  surveyed tool has.
+- **Auto-summary / TL;DR** surfaced atop the centre pane and in the info panel
+  (part of F-008).
+- **Near-duplicate / merge detection** over the embedding vectors (deterministic;
+  flags overlapping notes as merge candidates).
+- **Title / filename suggestions** for poorly-named notes (proposed).
+
+### Spatial / graph layer (matches the spatial-first preference)
+
+- **Graph / map view** of the relationship layer (explicit links + shared-tag +
+  semantic), petgraph + egui. Was the Phase 4 spatial item.
+- **Gap / blind-spot detection** (InfraNodus-style): compute graph structure
+  deterministically (clusters, weakly-connected components, missing bridges,
+  orphans), then optionally have the model *propose* a bridging idea or research
+  question for a detected gap. Detection is deterministic; the bridge is proposed.
+  Strong fit for an *idea* tool — "two clusters that should connect but don't."
+- **Stale triage with a proposed next step** — each rotting note (from `stale`)
+  gets a proposed revival prompt / next action.
+- **Cluster + orphan overview** — surface dense clusters and unconnected notes
+  (deterministic graph metrics).
+
+### Powerful but breaks INV-1 — only as a bounded, opt-in mode
+
+- **"Ask" / RAG chat over the corpus** with citations (the most popular feature
+  in Reor/Khoj/LM Studio). Retrieval reuses the index-time embeddings; only
+  generation runs on demand. Because it puts the model in a query path, it must
+  be a deliberately separate, user-invoked mode — never baked into `search`/`show`
+  — and warrants its own DECISIONS entry recording the boundary.
+
+### Smaller
+
 - Per-idea `open` in `$EDITOR`.
