@@ -147,6 +147,41 @@ impl Store {
         tx.commit()?;
         Ok(pruned)
     }
+
+    /// Store (or replace) a note's embedding vector, encoded as little-endian
+    /// f32s. Called at index time only (the model runs there). A re-indexed
+    /// idea's old vector is cleared by the `INSERT OR REPLACE` cascade on `ideas`,
+    /// so this writes the fresh one after `upsert`.
+    pub fn set_embedding(&self, idea_id: &str, vector: &[f32]) -> Result<()> {
+        let bytes: Vec<u8> = vector.iter().flat_map(|f| f.to_le_bytes()).collect();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO embeddings (idea_id, dim, vector) VALUES (?1, ?2, ?3)",
+            params![idea_id, vector.len() as i64, bytes],
+        )?;
+        Ok(())
+    }
+
+    /// Every stored embedding as `(id, vector)`. The whole set is small enough to
+    /// scan in memory for cosine similarity (see [`crate::query::near`]).
+    pub fn all_embeddings(&self) -> Result<Vec<(String, Vec<f32>)>> {
+        let mut stmt = self.conn.prepare("SELECT idea_id, vector FROM embeddings")?;
+        let rows = stmt
+            .query_map([], |r| {
+                let id: String = r.get(0)?;
+                let bytes: Vec<u8> = r.get(1)?;
+                Ok((id, decode_vector(&bytes)))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+}
+
+/// Decode a little-endian f32 BLOB back into a vector.
+fn decode_vector(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
 }
 
 #[cfg(test)]

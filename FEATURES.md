@@ -121,6 +121,20 @@ to Concept (D-011). Generator lives in `scaffold.rs`, round-trips through `parse
   when stdout is a TTY (clean when piped).
 **Status:** Complete (Phase 1)
 
+### F-012 Semantic "near this"
+**Priority:** Should
+**Acceptance:**
+- `phanes index --embed` (with `--features enrich`) stores one embedding vector
+  per changed note via a local embedding model.
+- `phanes near <id|title>` lists the most cosine-similar notes (with a `% similar`
+  score), excluding itself; the UI info panel shows a "Near (semantic)" section.
+- Similarity is computed at query time from stored vectors — no model runs on a
+  query (INV-1); a failed embed leaves a note vector-less, never failing the pass
+  (INV-4).
+**Status:** Complete (post-roadmap) — live-verified on the 28-note corpus (nomic-embed-text, 768-dim)
+**Notes:** Vectors are note data; the neighbours are computed, not stored (INV-3).
+Related: D-001, D-003, D-012, D-013.
+
 ## Candidate features (uncommitted)
 
 Ideas not committed to. Most come from a 2026-06-11 survey of local-LLM note
@@ -131,12 +145,7 @@ chat) does not and is flagged.
 
 ### Fits the index-time / proposed model (queries stay instant + offline)
 
-- **Semantic "near this".** Embed each note at index time — a second enrichment
-  spoke beside extraction — and store the vectors. Query-time similarity is
-  deterministic vector math (no model in the query path), so INV-1 holds. Adds a
-  *proposed* "related (semantic)" set beside the deterministic links/shared-tags.
-  Highest payoff; fixes the empty `related` on a tag-sparse corpus. Pairs with
-  D-001/D-003.
+- ~~Semantic "near this"~~ — **shipped as F-012.**
 - **Taxonomy-aware proposed tags.** Feed the model the existing asserted-tag
   vocabulary so proposed tags stay consistent rather than inventing synonyms.
   Refinement of F-008.

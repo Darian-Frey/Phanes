@@ -59,3 +59,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS ideas_fts USING fts5 (
     body,
     tokenize = 'porter unicode61'
 );
+
+-- Per-note embedding vectors for semantic "near this" (F-012). Computed at index
+-- time by an embedding model (a second enrichment spoke), so the model never runs
+-- on a query. Similarity is plain cosine over these vectors at query time, so the
+-- neighbours are computed, not stored (INV-3). The cascade clears a note's vector
+-- when it is re-indexed (content changed) or pruned.
+CREATE TABLE IF NOT EXISTS embeddings (
+    idea_id TEXT PRIMARY KEY REFERENCES ideas(id) ON DELETE CASCADE,
+    dim     INTEGER NOT NULL,
+    vector  BLOB NOT NULL              -- `dim` little-endian f32 values
+);

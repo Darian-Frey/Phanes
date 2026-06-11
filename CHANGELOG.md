@@ -7,6 +7,14 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-012 Semantic "near this". `phanes index --embed` (with `--features enrich`)
+  stores one embedding vector per changed note via a local embedding model
+  (OpenAI `/v1/embeddings`; env `PHANES_EMBED_URL` / `PHANES_EMBED_MODEL`).
+  `phanes near <id|title>` and a "Near (semantic)" section in the UI info panel
+  rank notes by cosine similarity over stored vectors — computed at query time,
+  no model on the query path (INV-1), neighbours not stored (INV-3), failed
+  embeds non-fatal (INV-4). Vectors live in a new `embeddings` table (f32 BLOB).
+  Verified live on the 28-note corpus (nomic-embed-text, 768-dim). See D-013.
 - F-001 Deterministic indexing — `store` (`hash_for_path`, `upsert`,
   `prune_missing`) and `parser::parse` (YAML frontmatter **and** the blockquote
   header convention; title, links, dates, status). `phanes index` works end to

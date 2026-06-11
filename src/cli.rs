@@ -19,10 +19,13 @@ pub struct Cli {
 pub enum Command {
     /// (Re)build the index from the ideas folder.
     Index {
-        /// Run the local model on changed files (needs the `enrich` build + llama-server).
+        /// Run the enrichment model on changed files (needs the `enrich` build + a model server).
         #[arg(long)]
         enrich: bool,
-        /// Re-process and re-enrich every file regardless of hash.
+        /// Compute embedding vectors for changed files, for `near` (same build + server).
+        #[arg(long)]
+        embed: bool,
+        /// Re-process every file regardless of hash.
         #[arg(long)]
         force: bool,
     },
@@ -45,6 +48,8 @@ pub enum Command {
     },
     /// Show ideas related to one (explicit links + shared tags).
     Related { id_or_title: String },
+    /// Show semantically similar ideas (needs a prior `index --embed`).
+    Near { id_or_title: String },
     /// Show one idea's metadata and relationships.
     Show { id_or_title: String },
     /// Create a new idea note with the frontmatter pre-filled.

@@ -366,3 +366,39 @@ mirrors `model::Enrichment`. The reply is `choices[0].message.content`, parsed t
 unreliable on the chosen server (fall back to A, llama.cpp native + GBNF), or if
 maintaining two schema definitions becomes error-prone (derive one canonical
 schema, e.g. via `schemars`).
+
+### D-013 Semantic search: one vector per note, brute-force cosine at query time
+**Decided:** 2026-06-12
+**Recorded:** 2026-06-12
+**Status:** Accepted
+**Authors:** Shane Hartley
+**Related:** F-012, D-001, D-003, D-012
+
+**Context.** Semantic "near this" (F-012) needs note embeddings and a similarity
+search. The design choices are where vectors live and how the search runs.
+
+**Options.**
+- **A. A dedicated vector store / ANN index** (LanceDB, FAISS, hnsw). Rejected
+  for now: a heavy dependency for a personal corpus of hundreds–low-thousands of
+  notes, and it would split the index out of the single SQLite file.
+- **B. One embedding per note as a SQLite BLOB; brute-force cosine in Rust at
+  query time.** Chosen: trivial, no new dependency, exact, and fast enough at
+  this scale (N × 768 floats per query).
+
+**Decision.** Compute one vector per note at index time (`--embed`, behind the
+`enrich` feature, via the OpenAI `/v1/embeddings` endpoint — D-012). Store it in
+an `embeddings` table (little-endian f32 BLOB, FK cascade to `ideas`).
+`query::near` loads all vectors and ranks by cosine — deterministic, no model on
+the query path (INV-1); the neighbours are computed, not stored (INV-3).
+
+**Consequences.**
+- No vector-DB dependency; the index stays one SQLite file.
+- Brute-force is O(N·dim) per query — comfortable to low thousands of notes.
+- One vector per note (no chunking): a long note is summarised by a single
+  embedding.
+- A changed note's vector is cascade-cleared on re-index and only recomputed
+  under `--embed`.
+
+**Reversal conditions.** Revisit if the corpus outgrows brute-force comfort (add
+an ANN index) or if per-note granularity proves too coarse (chunk + average, or
+store multiple vectors per note).

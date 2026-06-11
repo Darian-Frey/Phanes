@@ -348,6 +348,72 @@ pub fn resolve(store: &Store, id_or_title: &str) -> Result<Option<String>> {
     }
 }
 
+/// Semantically similar ideas by cosine similarity over stored embeddings
+/// (F-012). Deterministic — the vectors were computed at index time, so no model
+/// runs here (INV-1). Returns the top `limit` ideas most similar to the target,
+/// excluding itself; empty if the note has no embedding or can't be resolved.
+pub fn near(store: &Store, id_or_title: &str, limit: usize) -> Result<Vec<Hit>> {
+    let Some(id) = resolve(store, id_or_title)? else {
+        return Ok(Vec::new());
+    };
+
+    let embeddings = store.all_embeddings()?;
+    let Some(target) = embeddings.iter().find(|(eid, _)| *eid == id).map(|(_, v)| v.clone()) else {
+        return Ok(Vec::new());
+    };
+
+    let mut scored: Vec<(String, f32)> = embeddings
+        .iter()
+        .filter(|(eid, _)| *eid != id)
+        .map(|(eid, v)| (eid.clone(), cosine(&target, v)))
+        .collect();
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+    scored.truncate(if limit == 0 { 10 } else { limit });
+
+    // Hydrate the ranked ids into Hits (title + status), preserving order.
+    let mut out = Vec::new();
+    for (eid, sim) in scored {
+        let row = store
+            .conn
+            .query_row(
+                "SELECT title, status FROM ideas WHERE id = ?1",
+                params![eid],
+                |r| Ok((r.get::<_, String>(0)?, status_from_row(r.get::<_, String>(1)?))),
+            )
+            .optional()?;
+        if let Some((title, status)) = row {
+            out.push(Hit {
+                id: eid,
+                title,
+                status,
+                snippet: Some(format!("{:.0}% similar", (sim * 100.0).clamp(0.0, 100.0))),
+                score: Some((sim * 1000.0) as i64),
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Cosine similarity of two vectors. Returns 0 on a dimension mismatch or a
+/// zero-norm vector.
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() {
+        return 0.0;
+    }
+    let mut dot = 0.0f32;
+    let mut na = 0.0f32;
+    let mut nb = 0.0f32;
+    for (x, y) in a.iter().zip(b.iter()) {
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    if na == 0.0 || nb == 0.0 {
+        return 0.0;
+    }
+    dot / (na.sqrt() * nb.sqrt())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,5 +623,29 @@ mod tests {
         assert_eq!(alpha.title, "Alpha");
         assert_eq!(alpha.status, Status::Active);
         assert_eq!(alpha.path, "/ideas/alpha.md");
+    }
+
+    #[test]
+    fn near_ranks_by_cosine_similarity() {
+        let store = related_store(); // alpha, beta, gamma, delta
+        // Hand-place 2-D vectors: alpha points "right"; delta is nearly identical,
+        // gamma is at 45°, beta is orthogonal.
+        store.set_embedding("alpha", &[1.0, 0.0]).unwrap();
+        store.set_embedding("delta", &[0.99, 0.10]).unwrap();
+        store.set_embedding("gamma", &[0.70, 0.70]).unwrap();
+        store.set_embedding("beta", &[0.0, 1.0]).unwrap();
+
+        let hits = near(&store, "alpha", 10).unwrap();
+        // self excluded; ordered most-similar first: delta, gamma, beta
+        assert_eq!(ids(&hits), vec!["delta", "gamma", "beta"]);
+        // scores are descending
+        assert!(hits[0].score.unwrap() >= hits[1].score.unwrap());
+        assert!(hits[1].score.unwrap() >= hits[2].score.unwrap());
+    }
+
+    #[test]
+    fn near_without_embedding_is_empty() {
+        let store = related_store(); // no vectors stored
+        assert!(near(&store, "alpha", 10).unwrap().is_empty());
     }
 }

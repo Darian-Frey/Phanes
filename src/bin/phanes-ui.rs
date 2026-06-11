@@ -97,6 +97,7 @@ struct PhanesApp {
     selected: Option<String>,
     selected_idea: Option<Idea>,
     related: Vec<query::Hit>,
+    near: Vec<query::Hit>,
     // centre editor
     mode: Mode,
     buffer: String,       // raw file content of the selected note (editable)
@@ -112,7 +113,7 @@ impl PhanesApp {
                 // Index the folder on startup so the UI reflects the current
                 // notes even on a never-indexed folder. Cheap: hash-gated, and
                 // no enrichment (that stays opt-in, CLI-only).
-                let opts = IndexOptions { enrich: false, force: false };
+                let opts = IndexOptions { enrich: false, embed: false, force: false };
                 let _ = indexer::run(&mut store, &root, &opts);
                 let items = query::list(&store).unwrap_or_default();
                 let tree = build_tree(&items, &root);
@@ -130,6 +131,7 @@ impl PhanesApp {
             selected: None,
             selected_idea: None,
             related: Vec::new(),
+            near: Vec::new(),
             mode: Mode::View,
             buffer: String::new(),
             saved: String::new(),
@@ -157,12 +159,13 @@ impl PhanesApp {
     /// Select a note by id: load its record and its raw file into the buffer.
     /// (Switching notes discards unsaved edits — the dirty marker warns first.)
     fn select(&mut self, id: String) {
-        let (idea, related) = match self.store.as_ref() {
+        let (idea, related, near) = match self.store.as_ref() {
             Some(s) => (
                 query::get(s, &id).ok().flatten(),
                 query::related(s, &id).unwrap_or_default(),
+                query::near(s, &id, 8).unwrap_or_default(),
             ),
-            None => (None, Vec::new()),
+            None => (None, Vec::new(), Vec::new()),
         };
         self.buffer = match &idea {
             Some(i) => std::fs::read_to_string(&i.path)
@@ -172,6 +175,7 @@ impl PhanesApp {
         self.saved = self.buffer.clone();
         self.selected_idea = idea;
         self.related = related;
+        self.near = near;
         self.selected = Some(id);
         self.mode = Mode::View;
         self.status_msg = None;
@@ -188,7 +192,7 @@ impl PhanesApp {
         }
         self.saved = self.buffer.clone();
         if let Some(store) = &mut self.store {
-            let opts = IndexOptions { enrich: false, force: false };
+            let opts = IndexOptions { enrich: false, embed: false, force: false };
             if let Err(e) = indexer::run(store, &self.root, &opts) {
                 self.status_msg = Some(format!("saved, but index failed: {e}"));
                 return;
@@ -204,16 +208,18 @@ impl PhanesApp {
         let Some(store) = &self.store else { return };
         let items = query::list(store).unwrap_or_default();
         let tree = build_tree(&items, &self.root);
-        let (idea, related) = match self.selected.as_ref() {
+        let (idea, related, near) = match self.selected.as_ref() {
             Some(id) => (
                 query::get(store, id).ok().flatten(),
                 query::related(store, id).unwrap_or_default(),
+                query::near(store, id, 8).unwrap_or_default(),
             ),
-            None => (None, Vec::new()),
+            None => (None, Vec::new(), Vec::new()),
         };
         self.tree = tree;
         self.selected_idea = idea;
         self.related = related;
+        self.near = near;
     }
 }
 
@@ -336,6 +342,25 @@ impl eframe::App for PhanesApp {
                             for h in &self.related {
                                 let how = h.snippet.as_deref().unwrap_or("");
                                 let text = egui::RichText::new(format!("{}  ({how})", h.title))
+                                    .color(status_color(h.status));
+                                if ui.selectable_label(false, text).clicked() {
+                                    clicked = Some(h.id.clone());
+                                }
+                            }
+                        }
+
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.strong("Near");
+                            ui.weak("(semantic)");
+                        });
+                        if self.near.is_empty() {
+                            ui.weak("none — run `index --embed`");
+                        } else {
+                            for h in &self.near {
+                                let how = h.snippet.as_deref().unwrap_or("");
+                                let text = egui::RichText::new(format!("{}  · {how}", h.title))
                                     .color(status_color(h.status));
                                 if ui.selectable_label(false, text).clicked() {
                                     clicked = Some(h.id.clone());

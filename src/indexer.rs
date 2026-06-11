@@ -18,9 +18,13 @@ use crate::store::Store;
 /// Options for a single index pass.
 pub struct IndexOptions {
     /// Run the enrichment model on changed files. Requires the `enrich`
-    /// feature *and* a reachable llama-server. Off by default.
+    /// feature *and* a reachable model server. Off by default.
     pub enrich: bool,
-    /// Re-enrich every file regardless of hash (e.g. after a prompt change).
+    /// Compute and store an embedding vector for changed files (semantic
+    /// "near this", F-012). Requires the `enrich` feature + a server. Off by
+    /// default. Independent of `enrich` — either, both, or neither.
+    pub embed: bool,
+    /// Re-process every file regardless of hash (e.g. after a prompt change).
     pub force: bool,
 }
 
@@ -29,6 +33,7 @@ pub struct IndexReport {
     pub scanned: usize,
     pub changed: usize,
     pub enriched: usize,
+    pub embedded: usize,
     pub skipped: usize,
     pub pruned: usize,
 }
@@ -115,6 +120,26 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
         }
 
         store.upsert(&idea)?;
+
+        // Embedding runs after upsert: the INSERT OR REPLACE on `ideas` cascades
+        // away any stale vector, so we write the fresh one here. Index-time only.
+        if opts.embed {
+            #[cfg(feature = "enrich")]
+            {
+                let text = format!("{}\n{}", idea.title, idea.body);
+                match crate::embed::embed(&text) {
+                    Ok(vector) => {
+                        store.set_embedding(&idea.id, &vector)?;
+                        report.embedded += 1;
+                    }
+                    // Graceful degradation: a failed embed leaves the note without
+                    // a vector; it just won't appear in `near` until re-embedded.
+                    Err(err) => eprintln!("embed skipped for {}: {err}", idea.id),
+                }
+            }
+            #[cfg(not(feature = "enrich"))]
+            eprintln!("--embed requested but binary built without the `enrich` feature");
+        }
     }
 
     report.pruned = store.prune_missing(&seen)?;

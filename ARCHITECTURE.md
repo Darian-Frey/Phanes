@@ -52,13 +52,17 @@ the model or the network.
 - **indexer.rs** — index-time orchestration: walk `*.md` → hash-gate → parse →
   optional enrich → merge (proposed fills gaps) → upsert → prune. The **only**
   place the enrichment model is invoked.
-- **query.rs** — read side: `search`, `stale` (done); `related`, `resolve`
-  (pending). Deterministic and instant; shared-tag neighbours are a query-time
-  JOIN, never stored.
+- **query.rs** — read side: `search`, `stale`, `related`, `resolve`, `get`,
+  `list`, and `near` (semantic). Deterministic and instant; shared-tag neighbours
+  are a query-time JOIN and `near` is cosine over stored vectors — neither is
+  stored as edges.
 - **enrich.rs** *(feature `enrich`)* — HTTP client for a local OpenAI-compatible
   server (LM Studio / Ollama / llama.cpp `--api`), output constrained by a
   `response_format` json_schema mirroring `Enrichment`, temperature 0 (D-012).
   Returns `Result`; the caller logs and degrades on failure.
+- **embed.rs** *(feature `enrich`)* — embedding client for the same server's
+  `/v1/embeddings` endpoint; one vector per note at index time for semantic
+  "near this" (F-012, D-013). Also degrades gracefully.
 - **cli.rs / main.rs** — clap command surface, dispatch, and table rendering.
 
 ## Data flow
@@ -97,4 +101,6 @@ the model or the network.
 `sql/schema.sql` is authoritative (loaded via `include_str!`). Tables: `ideas`
 (with `status_source` / `summary_source` provenance columns), `tags`
 (per-tag `source`), `topics`, `links` (explicit out-links only), and the
-`ideas_fts` FTS5 virtual table (porter unicode61) over title/summary/body.
+`ideas_fts` FTS5 virtual table (porter unicode61) over title/summary/body, plus
+`embeddings` (one little-endian f32 BLOB vector per note, FK cascade to `ideas`)
+backing semantic `near` (F-012).

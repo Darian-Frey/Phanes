@@ -46,8 +46,8 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   per-field provenance flags; and `new` (`scaffold.rs`, Status: Concept — D-011).
   Plus the original scaffold: types, schema, GBNF grammar, the index control flow
   with hash gate and provenance merge, the enrichment HTTP client, and the CLI.
-  Compiles and passes 26 lib tests with and without `--features enrich`. Every
-  command body is implemented — no `todo!()` remains.
+  Compiles and passes its lib tests with and without `--features enrich` (37
+  with enrich). Every command body is implemented — no `todo!()` remains.
 - **Done (Phase 4 UI):** the egui three-panel app (F-009/F-010). The `ui`
   feature + `src/bin/phanes-ui.rs` (eframe 0.34): left **explorer** (folder tree,
   a `query::search` filter, and click-to-select, backed by `query::list`),
@@ -57,10 +57,15 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   Build/run with `cargo run --features ui --bin phanes-ui -- ideas`. Note eframe
   0.34's `App` trait uses `fn ui(&mut self, ui: &mut egui::Ui, ..)` (not
   `update`), and panels are `Panel::left/right(...).show_inside(ui, ..)`.
-- **Not yet built:** enrichment wiring (Phase 3, F-008 — client exists; see the
-  enrichment-server-gap note for the llama.cpp-vs-OpenAI protocol decision). The
-  UI info panel already renders proposed values distinctly, ready for it.
-  Remaining P4 extras (graph view, semantic search, open-in-$EDITOR) uncommitted.
+- **Done (Phase 3 + F-012):** enrichment and semantic search. `enrich.rs` +
+  `embed.rs` (feature `enrich`) call a local OpenAI-compatible server (D-012):
+  `index --enrich` fills proposed summary/tags/topics; `index --embed` stores one
+  vector per note (`embeddings` table, D-013); `query::near` ranks cosine-similar
+  notes, shown via the `near` command and the UI's "Near (semantic)" panel. Both
+  live-verified against LM Studio. Run e.g.
+  `cargo run --features enrich -- index --root ideas --enrich --embed --force`.
+- **Not yet built:** the remaining FEATURES.md candidates (graph/gap view,
+  taxonomy-aware tags, propose→accept links, RAG "ask" mode, open-in-$EDITOR).
 
 ## Suggested implementation order
 

@@ -17,3 +17,6 @@ pub mod store;
 
 #[cfg(feature = "enrich")]
 pub mod enrich;
+
+#[cfg(feature = "enrich")]
+pub mod embed;

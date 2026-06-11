@@ -17,11 +17,11 @@ fn main() -> Result<()> {
     let mut store = Store::open(&db_path)?;
 
     match cli.command {
-        Command::Index { enrich, force } => {
-            let report = indexer::run(&mut store, &cli.root, &IndexOptions { enrich, force })?;
+        Command::Index { enrich, embed, force } => {
+            let report = indexer::run(&mut store, &cli.root, &IndexOptions { enrich, embed, force })?;
             println!(
-                "scanned {} · changed {} · enriched {} · skipped {} · pruned {}",
-                report.scanned, report.changed, report.enriched, report.skipped, report.pruned
+                "scanned {} · changed {} · enriched {} · embedded {} · skipped {} · pruned {}",
+                report.scanned, report.changed, report.enriched, report.embedded, report.skipped, report.pruned
             );
         }
         Command::Search { query: q, status, tag, stale_days, limit } => {
@@ -36,6 +36,7 @@ fn main() -> Result<()> {
         }
         Command::Stale { days } => print_hits(&query::stale(&store, days)?),
         Command::Related { id_or_title } => print_hits(&query::related(&store, &id_or_title)?),
+        Command::Near { id_or_title } => print_hits(&query::near(&store, &id_or_title, 10)?),
         Command::Show { id_or_title } => match query::resolve(&store, &id_or_title)? {
             Some(id) => {
                 let idea = query::get(&store, &id)?.expect("a resolved id always exists");
@@ -58,7 +59,7 @@ fn main() -> Result<()> {
 
             // Index the new note so it's immediately searchable (no enrichment —
             // that's opt-in and index-time only). Unchanged files hash-skip.
-            indexer::run(&mut store, &cli.root, &IndexOptions { enrich: false, force: false })?;
+            indexer::run(&mut store, &cli.root, &IndexOptions { enrich: false, embed: false, force: false })?;
 
             if let Some(id) = query::resolve(&store, &title)? {
                 let idea = query::get(&store, &id)?.expect("the note was just indexed");
