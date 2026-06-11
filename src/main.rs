@@ -37,6 +37,10 @@ fn main() -> Result<()> {
         Command::Stale { days } => print_hits(&query::stale(&store, days)?),
         Command::Related { id_or_title } => print_hits(&query::related(&store, &id_or_title)?),
         Command::Near { id_or_title } => print_hits(&query::near(&store, &id_or_title, 10)?),
+        Command::Gaps => {
+            let g = phanes::graph::build(&store, &phanes::graph::GraphOptions::default())?;
+            print_gaps(&g);
+        }
         Command::Show { id_or_title } => match query::resolve(&store, &id_or_title)? {
             Some(id) => {
                 let idea = query::get(&store, &id)?.expect("a resolved id always exists");
@@ -167,6 +171,33 @@ fn print_idea(idea: &Idea, related: &[query::Hit]) {
             let how = h.snippet.as_deref().unwrap_or("");
             println!("    {}  {} — {} ({})", tint_status(h.status), h.id, h.title, how);
         }
+    }
+    println!();
+}
+
+/// Print the structural gap analysis: orphan ideas and candidate bridges.
+fn print_gaps(g: &phanes::graph::RelGraph) {
+    let orphans = g.orphans();
+    println!("\nOrphans ({}) — connected to nothing:", orphans.len());
+    if orphans.is_empty() {
+        println!("  (none)");
+    }
+    for &i in &orphans {
+        println!("  {} — {}", g.nodes[i].id, g.nodes[i].title);
+    }
+
+    let bridges = g.bridges(10);
+    println!("\nCandidate bridges — semantically near but not linked:");
+    if bridges.is_empty() {
+        println!("  (none — run `index --embed` first?)");
+    }
+    for e in bridges {
+        println!(
+            "  {} ↔ {}  ({:.0}% similar)",
+            g.nodes[e.a].title,
+            g.nodes[e.b].title,
+            e.weight * 100.0
+        );
     }
     println!();
 }

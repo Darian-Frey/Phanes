@@ -64,8 +64,13 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   notes, shown via the `near` command and the UI's "Near (semantic)" panel. Both
   live-verified against LM Studio. Run e.g.
   `cargo run --features enrich -- index --root ideas --enrich --embed --force`.
-- **Not yet built:** the remaining FEATURES.md candidates (graph/gap view,
-  taxonomy-aware tags, propose→accept links, RAG "ask" mode, open-in-$EDITOR).
+- **Done (F-013):** relationship graph + gap analysis. `graph.rs` builds/analyses
+  the graph (links + shared tags + semantic edges; components/orphans/bridges);
+  `phanes gaps` lists orphans + candidate bridges; the UI `Graph` tab is a
+  hand-rolled force-directed view (D-014 — no egui_graphs/petgraph). Follow-up:
+  draw the gap overlay on the canvas; model-proposed bridges.
+- **Not yet built:** the remaining FEATURES.md candidates (taxonomy-aware tags,
+  propose→accept links, RAG "ask" mode, open-in-$EDITOR, the gap overlay).
 
 ## Suggested implementation order
 

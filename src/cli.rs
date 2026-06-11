@@ -50,6 +50,8 @@ pub enum Command {
     Related { id_or_title: String },
     /// Show semantically similar ideas (needs a prior `index --embed`).
     Near { id_or_title: String },
+    /// Surface structural gaps: orphan ideas and candidate bridges (needs `--embed`).
+    Gaps,
     /// Show one idea's metadata and relationships.
     Show { id_or_title: String },
     /// Create a new idea note with the frontmatter pre-filled.

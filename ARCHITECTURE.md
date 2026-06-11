@@ -63,6 +63,10 @@ the model or the network.
 - **embed.rs** *(feature `enrich`)* — embedding client for the same server's
   `/v1/embeddings` endpoint; one vector per note at index time for semantic
   "near this" (F-012, D-013). Also degrades gracefully.
+- **graph.rs** — builds the relationship graph (links + shared tags + semantic
+  edges) and analyses it (components, orphans, candidate bridges) for the `gaps`
+  command and the UI graph view (F-013). Deterministic; rebuilt from the index,
+  never stored (INV-3).
 - **cli.rs / main.rs** — clap command surface, dispatch, and table rendering.
 
 ## Data flow

@@ -402,3 +402,36 @@ the query path (INV-1); the neighbours are computed, not stored (INV-3).
 **Reversal conditions.** Revisit if the corpus outgrows brute-force comfort (add
 an ANN index) or if per-note granularity proves too coarse (chunk + average, or
 store multiple vectors per note).
+
+### D-014 Hand-roll the graph view rather than use egui_graphs/petgraph
+**Decided:** 2026-06-12
+**Recorded:** 2026-06-12
+**Status:** Accepted
+**Authors:** Shane Hartley
+**Related:** F-013, D-005
+
+**Context.** The relationship graph view (F-013) needs node-edge rendering, a
+layout, and structural analysis (components, orphans, bridges).
+
+**Options.**
+- **A. `egui_graphs` crate.** Rejected: its latest (0.30) tracks egui 0.30, but
+  we're on egui 0.34 (via eframe) — pulling it in would dual-version egui and
+  fail to compile.
+- **B. `petgraph` for the algorithms + a custom renderer.** Rejected for now: the
+  algorithms we need (connected components, degree, bridge = semantic-not-linked)
+  are a few lines of union-find; petgraph would be a dependency for little gain.
+- **C. Fully hand-rolled.** Chosen: a Fruchterman-Reingold force-directed layout
+  drawn with `egui::Painter`, union-find for components, alpha-cooling to settle,
+  and node-drag interaction. Zero new dependencies.
+
+**Decision.** `graph.rs` builds and analyses the graph (deterministic, in the
+core); the UI's `Graph` tab renders it with a hand-rolled FR layout. No new deps.
+
+**Consequences.**
+- Full control over look and interaction; matches egui 0.34 exactly.
+- More code to own; layout constants (spring length, repulsion, cooling rate,
+  edge thresholds) are hand-tuned rather than provided by a library.
+
+**Reversal conditions.** Revisit if `egui_graphs` catches up to egui's version,
+or if richer analysis (centrality, community detection for cluster-level gaps)
+makes `petgraph` worth the dependency.

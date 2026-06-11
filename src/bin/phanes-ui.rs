@@ -16,6 +16,7 @@ use std::path::{Component, Path, PathBuf};
 
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use phanes::graph::{self, EdgeKind, RelGraph};
 use phanes::indexer::{self, IndexOptions};
 use phanes::model::{Idea, Provenance, Status};
 use phanes::query::{self, ListItem, SearchFilter};
@@ -42,6 +43,7 @@ fn main() -> eframe::Result<()> {
 enum Mode {
     View,
     Edit,
+    Graph,
 }
 
 /// A folder in the explorer: subdirectories plus the notes directly in it.
@@ -104,6 +106,13 @@ struct PhanesApp {
     saved: String,        // last-saved content, for the dirty check
     md_cache: CommonMarkCache,
     status_msg: Option<String>,
+    // graph view (built lazily; force-directed layout)
+    graph: Option<RelGraph>,
+    layout: Vec<egui::Pos2>,
+    pinned: Option<usize>, // node currently being dragged (held to the cursor)
+    graph_pan: egui::Pos2, // world point shown at the canvas centre
+    graph_zoom: f32,
+    graph_alpha: f32, // sim "temperature": cools to settle, reheats on drag
 }
 
 impl PhanesApp {
@@ -137,7 +146,189 @@ impl PhanesApp {
             saved: String::new(),
             md_cache: CommonMarkCache::default(),
             status_msg: None,
+            graph: None,
+            layout: Vec::new(),
+            pinned: None,
+            graph_pan: egui::Pos2::ZERO,
+            graph_zoom: 1.0,
+            graph_alpha: 1.0,
         }
+    }
+
+    /// Build the relationship graph and seed a deterministic spiral layout, once.
+    fn ensure_graph(&mut self) {
+        if self.graph.is_some() {
+            return;
+        }
+        let Some(store) = &self.store else { return };
+        // Tighter than the `gaps` default: keep only each note's strongest few
+        // semantic links so clusters separate instead of forming a hairball.
+        let opts = graph::GraphOptions { semantic_threshold: 0.70, semantic_per_node: 3 };
+        let g = match graph::build(store, &opts) {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        let golden = 2.399963_f32;
+        self.layout = (0..g.nodes.len())
+            .map(|i| {
+                let r = 55.0 * (i as f32 + 1.0).sqrt();
+                let a = i as f32 * golden;
+                egui::pos2(r * a.cos(), r * a.sin())
+            })
+            .collect();
+        self.pinned = None;
+        self.graph_alpha = 1.0;
+        self.graph = Some(g);
+    }
+
+    /// One Fruchterman-Reingold step: `k²/d` repulsion between all pairs, `d²/k`
+    /// attraction along edges, a weak pull to centre, capped displacement.
+    /// `1/d` repulsion (vs `1/d²`) reaches far enough to actually untangle.
+    /// Runs each frame while the Graph tab is open; the pinned (dragged) node is
+    /// held fixed so its neighbours spring toward it.
+    fn simulate(&mut self) {
+        let Some(g) = &self.graph else { return };
+        let n = g.nodes.len();
+        if n < 2 {
+            return;
+        }
+        // Settled and not being dragged: nothing to do (saves CPU, stops jitter).
+        if self.graph_alpha < 0.008 && self.pinned.is_none() {
+            return;
+        }
+        let k = 80.0_f32; // ideal edge length
+        let mut force = vec![egui::Vec2::ZERO; n];
+
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let d = self.layout[i] - self.layout[j];
+                let dist = d.length().max(1.0);
+                let push = d / dist * (k * k / dist);
+                force[i] += push;
+                force[j] -= push;
+            }
+        }
+        for e in &g.edges {
+            let d = self.layout[e.b] - self.layout[e.a];
+            let dist = d.length().max(0.01);
+            let pull = d / dist * (dist * dist / k) * (0.4 + 0.6 * e.weight);
+            force[e.a] += pull;
+            force[e.b] -= pull;
+        }
+        for i in 0..n {
+            force[i] -= self.layout[i].to_vec2() * 0.01; // gentle centring
+        }
+
+        let max_disp = 10.0;
+        let alpha = self.graph_alpha;
+        for i in 0..n {
+            if self.pinned == Some(i) {
+                continue; // dragged node stays under the cursor
+            }
+            let f = force[i];
+            let len = f.length();
+            if len > 1e-3 {
+                self.layout[i] += f / len * len.min(max_disp) * alpha;
+            }
+        }
+        self.graph_alpha *= 0.975; // cool toward a settled layout
+    }
+
+    /// Draw the graph canvas; returns a clicked node's id, if any.
+    fn graph_ui(&mut self, ui: &mut egui::Ui) -> Option<String> {
+        self.ensure_graph();
+        self.simulate();
+
+        let Some(g) = &self.graph else {
+            ui.weak("no graph");
+            return None;
+        };
+        if g.nodes.is_empty() {
+            ui.weak("no notes to graph");
+            return None;
+        }
+
+        let (resp, painter) =
+            ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
+        let center = resp.rect.center();
+
+        // zoom around the cursor
+        if let Some(hover) = resp.hover_pos() {
+            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            if scroll != 0.0 {
+                let before = self.graph_pan + (hover - center) / self.graph_zoom;
+                self.graph_zoom = (self.graph_zoom * (1.0 + scroll * 0.0015)).clamp(0.1, 6.0);
+                self.graph_pan = before - (hover - center) / self.graph_zoom;
+            }
+        }
+
+        let (zoom, pan) = (self.graph_zoom, self.graph_pan);
+        let to_screen = |w: egui::Pos2| center + (w - pan) * zoom;
+        let from_screen = |s: egui::Pos2| pan + (s - center) / zoom;
+
+        // drag a node (it follows the cursor; neighbours spring along) — or, on
+        // empty space, pan the view.
+        if resp.drag_started() {
+            self.pinned = resp
+                .interact_pointer_pos()
+                .and_then(|p| node_at(g, &self.layout, to_screen, p));
+        }
+        if resp.dragged() {
+            match self.pinned {
+                Some(i) => {
+                    if let Some(p) = resp.interact_pointer_pos() {
+                        self.layout[i] = from_screen(p);
+                    }
+                    self.graph_alpha = self.graph_alpha.max(0.35); // reheat so neighbours follow
+                }
+                None => self.graph_pan -= resp.drag_delta() / zoom,
+            }
+        }
+        if resp.drag_stopped() {
+            self.pinned = None;
+        }
+
+        for e in &g.edges {
+            painter.line_segment(
+                [to_screen(self.layout[e.a]), to_screen(self.layout[e.b])],
+                egui::Stroke::new(1.0, edge_color(e.kind, e.weight)),
+            );
+        }
+
+        let hovered = resp.hover_pos().and_then(|hp| node_at(g, &self.layout, to_screen, hp));
+
+        for (i, node) in g.nodes.iter().enumerate() {
+            let p = to_screen(self.layout[i]);
+            let sel = self.selected.as_deref() == Some(node.id.as_str());
+            let r = if sel || hovered == Some(i) { 8.0 } else { 6.0 };
+            painter.circle_filled(p, r, status_color(node.status));
+            if sel {
+                painter.circle_stroke(p, r + 2.5, egui::Stroke::new(2.0, egui::Color32::WHITE));
+            }
+        }
+
+        // labels for the selected and hovered nodes only (keeps it legible)
+        if let Some(sel) = &self.selected {
+            if let Some(i) = g.nodes.iter().position(|n| &n.id == sel) {
+                draw_label(&painter, to_screen(self.layout[i]), &g.nodes[i].title);
+            }
+        }
+        if let Some(i) = hovered {
+            draw_label(&painter, to_screen(self.layout[i]), &g.nodes[i].title);
+        }
+
+        // Keep animating only while the layout is still warm (or being dragged);
+        // a settled graph stays static until the next interaction.
+        if self.graph_alpha > 0.008 || self.pinned.is_some() {
+            ui.ctx().request_repaint();
+        }
+
+        if resp.clicked() {
+            if let Some(i) = hovered {
+                return Some(g.nodes[i].id.clone());
+            }
+        }
+        None
     }
 
     fn dirty(&self) -> bool {
@@ -220,6 +411,7 @@ impl PhanesApp {
         self.selected_idea = idea;
         self.related = related;
         self.near = near;
+        self.graph = None; // rebuilt next time the Graph tab is opened
     }
 }
 
@@ -375,63 +567,117 @@ impl eframe::App for PhanesApp {
             self.select(id);
         }
 
-        // --- centre: editor ---
+        // --- centre: editor / graph ---
         let central = egui::CentralPanel::default().show_inside(ui, |ui| {
             let mut save_requested = false;
-            if self.selected_idea.is_none() {
-                ui.weak("Select a note from the left.");
-                return false;
-            }
+            let mut node_clicked = None;
 
             ui.horizontal(|ui| {
-                let view = self.mode == Mode::View;
-                if ui.selectable_label(view, "View").clicked() {
+                if ui.selectable_label(self.mode == Mode::View, "View").clicked() {
                     self.mode = Mode::View;
                 }
-                if ui.selectable_label(!view, "Edit").clicked() {
+                if ui.selectable_label(self.mode == Mode::Edit, "Edit").clicked() {
                     self.mode = Mode::Edit;
                 }
+                if ui.selectable_label(self.mode == Mode::Graph, "Graph").clicked() {
+                    self.mode = Mode::Graph;
+                }
                 ui.separator();
-                let dirty = self.dirty();
-                if ui
-                    .add_enabled(dirty, egui::Button::new("Save"))
-                    .on_hover_text("Write the file and re-index (Ctrl+S)")
-                    .clicked()
-                {
-                    save_requested = true;
-                }
-                if dirty {
-                    ui.colored_label(egui::Color32::from_rgb(225, 200, 110), "● unsaved");
-                }
-                if let Some(msg) = &self.status_msg {
-                    ui.weak(msg);
+                if self.mode == Mode::Graph {
+                    ui.weak("scroll = zoom · drag = pan · click a node");
+                } else {
+                    let dirty = self.dirty();
+                    if ui
+                        .add_enabled(dirty, egui::Button::new("Save"))
+                        .on_hover_text("Write the file and re-index (Ctrl+S)")
+                        .clicked()
+                    {
+                        save_requested = true;
+                    }
+                    if dirty {
+                        ui.colored_label(egui::Color32::from_rgb(225, 200, 110), "● unsaved");
+                    }
+                    if let Some(msg) = &self.status_msg {
+                        ui.weak(msg);
+                    }
                 }
             });
             ui.separator();
 
-            egui::ScrollArea::vertical().show(ui, |ui| match self.mode {
-                Mode::View => {
-                    CommonMarkViewer::new().show(ui, &mut self.md_cache, &self.buffer);
+            if self.mode == Mode::Graph {
+                node_clicked = self.graph_ui(ui);
+            } else if self.selected_idea.is_none() {
+                ui.weak("Select a note from the left.");
+            } else {
+                egui::ScrollArea::vertical().show(ui, |ui| match self.mode {
+                    Mode::Edit => {
+                        ui.add_sized(
+                            egui::vec2(ui.available_width(), ui.available_height().max(400.0)),
+                            egui::TextEdit::multiline(&mut self.buffer)
+                                .code_editor()
+                                .desired_width(f32::INFINITY),
+                        );
+                    }
+                    // View (and the unreachable Graph arm)
+                    _ => {
+                        CommonMarkViewer::new().show(ui, &mut self.md_cache, &self.buffer);
+                    }
+                });
+                if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
+                    save_requested = true;
                 }
-                Mode::Edit => {
-                    ui.add_sized(
-                        egui::vec2(ui.available_width(), ui.available_height().max(400.0)),
-                        egui::TextEdit::multiline(&mut self.buffer)
-                            .code_editor()
-                            .desired_width(f32::INFINITY),
-                    );
-                }
-            });
-
-            if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
-                save_requested = true;
             }
-            save_requested
+            (save_requested, node_clicked)
         });
-        if central.inner && self.dirty() {
+        let (save_requested, node_clicked) = central.inner;
+        if save_requested && self.dirty() {
             self.save();
         }
+        if let Some(id) = node_clicked {
+            self.select(id);
+        }
     }
+}
+
+/// Edge colour by relationship kind, faded by weight.
+fn edge_color(kind: EdgeKind, weight: f32) -> egui::Color32 {
+    let a = (60.0 + weight * 150.0).clamp(40.0, 230.0) as u8;
+    match kind {
+        EdgeKind::Link => egui::Color32::from_rgba_unmultiplied(205, 205, 215, 210),
+        EdgeKind::Tag => egui::Color32::from_rgba_unmultiplied(120, 200, 140, a),
+        EdgeKind::Semantic => egui::Color32::from_rgba_unmultiplied(120, 150, 215, a),
+    }
+}
+
+/// Index of the node whose screen position is nearest `p`, within a small
+/// pixel radius.
+fn node_at(
+    g: &RelGraph,
+    layout: &[egui::Pos2],
+    to_screen: impl Fn(egui::Pos2) -> egui::Pos2,
+    p: egui::Pos2,
+) -> Option<usize> {
+    let mut best = 18.0;
+    let mut found = None;
+    for i in 0..g.nodes.len() {
+        let d = to_screen(layout[i]).distance(p);
+        if d < best {
+            best = d;
+            found = Some(i);
+        }
+    }
+    found
+}
+
+/// Draw a node label just to the right of its position.
+fn draw_label(painter: &egui::Painter, pos: egui::Pos2, text: &str) {
+    painter.text(
+        pos + egui::vec2(9.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        text,
+        egui::FontId::proportional(12.0),
+        egui::Color32::from_gray(220),
+    );
 }
 
 /// Render the folder tree: collapsing headers for directories, status-tinted

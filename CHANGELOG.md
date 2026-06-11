@@ -7,6 +7,14 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-013 Relationship graph view + gap analysis. New `graph.rs` builds the graph
+  (links + shared tags + semantic edges) and analyses it (connected components,
+  orphans, candidate bridges) — deterministic, rebuilt from the index (INV-3).
+  A `phanes gaps` command lists orphan ideas and candidate bridges (strong
+  semantic pairs not explicitly linked). The UI gains a `Graph` tab: a
+  hand-rolled force-directed, status-tinted node graph (D-014) with pan/zoom,
+  hover labels, drag-a-node (neighbours spring along; alpha-cooled to settle),
+  and click-to-select. No new dependencies.
 - F-012 Semantic "near this". `phanes index --embed` (with `--features enrich`)
   stores one embedding vector per changed note via a local embedding model
   (OpenAI `/v1/embeddings`; env `PHANES_EMBED_URL` / `PHANES_EMBED_MODEL`).

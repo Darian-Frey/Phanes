@@ -396,7 +396,7 @@ pub fn near(store: &Store, id_or_title: &str, limit: usize) -> Result<Vec<Hit>> 
 
 /// Cosine similarity of two vectors. Returns 0 on a dimension mismatch or a
 /// zero-norm vector.
-fn cosine(a: &[f32], b: &[f32]) -> f32 {
+pub(crate) fn cosine(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() {
         return 0.0;
     }

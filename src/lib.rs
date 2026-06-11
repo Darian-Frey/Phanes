@@ -8,6 +8,7 @@
 //!      overwrites asserted facts (see [`model::Provenance`]).
 
 pub mod cli;
+pub mod graph;
 pub mod indexer;
 pub mod model;
 pub mod parser;

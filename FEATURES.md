@@ -135,6 +135,19 @@ to Concept (D-011). Generator lives in `scaffold.rs`, round-trips through `parse
 **Notes:** Vectors are note data; the neighbours are computed, not stored (INV-3).
 Related: D-001, D-003, D-012, D-013.
 
+### F-013 Relationship graph view + gap analysis
+**Priority:** Could
+**Acceptance:**
+- The UI `Graph` tab renders the relationship layer (explicit links + shared tags
+  + semantic) as a force-directed, status-tinted node graph: pan/zoom, hover
+  labels, drag a node (neighbours spring along, then settle), click to select.
+- `phanes gaps` lists orphan ideas and candidate bridges (strong semantic pairs
+  not explicitly linked); `graph::{components, orphans, bridges}` compute these.
+**Status:** Complete (post-roadmap) — hand-rolled (D-014). Follow-up: draw the gap
+overlay (orphans/bridges) on the canvas; optionally let the model propose a bridge.
+**Notes:** The graph is rebuilt from the index, never stored (INV-3); semantic
+edges use the stored vectors (INV-1). Related: D-013, D-014.
+
 ## Candidate features (uncommitted)
 
 Ideas not committed to. Most come from a 2026-06-11 survey of local-LLM note
@@ -161,13 +174,9 @@ chat) does not and is flagged.
 
 ### Spatial / graph layer (matches the spatial-first preference)
 
-- **Graph / map view** of the relationship layer (explicit links + shared-tag +
-  semantic), petgraph + egui. Was the Phase 4 spatial item.
-- **Gap / blind-spot detection** (InfraNodus-style): compute graph structure
-  deterministically (clusters, weakly-connected components, missing bridges,
-  orphans), then optionally have the model *propose* a bridging idea or research
-  question for a detected gap. Detection is deterministic; the bridge is proposed.
-  Strong fit for an *idea* tool — "two clusters that should connect but don't."
+- Graph / map view and gap detection — **shipped as F-013** (force-directed UI
+  graph + `gaps` CLI). Remaining: draw the gap overlay on the canvas, and
+  optionally have the model *propose* a bridging idea per detected gap.
 - **Stale triage with a proposed next step** — each rotting note (from `stale`)
   gets a proposed revival prompt / next action.
 - **Cluster + orphan overview** — surface dense clusters and unconnected notes
