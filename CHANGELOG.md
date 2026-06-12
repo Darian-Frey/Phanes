@@ -70,6 +70,11 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   it works when pointed at a never-indexed folder; shows an empty-state hint when
   a folder has no notes. A ⟳ Scan button in the explorer re-indexes in place
   (deterministic, no model), so new/edited/deleted notes appear without a restart.
+- Set/change a note's status from the UI: the info panel's status field is a
+  dropdown that writes the new asserted status into the file via
+  `scaffold::set_status` (replaces the blockquote `> **Status:**` line or a
+  frontmatter `status:` key, or inserts one if absent), then re-indexes — so a
+  note with no status (`unknown`) can be given one in place.
 - F-011 Tinted bordered table output (`tabled` + `owo-colors`, TTY-gated).
 - `Status` enum gains `Concept` and `Draft` variants (D-007), kept in lockstep
   with `grammars/idea_extract.gbnf`.

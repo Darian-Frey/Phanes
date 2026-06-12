@@ -20,7 +20,20 @@ use phanes::graph::{self, EdgeKind, RelGraph};
 use phanes::indexer::{self, IndexOptions};
 use phanes::model::{Idea, Provenance, Status};
 use phanes::query::{self, ListItem, SearchFilter};
+use phanes::scaffold;
 use phanes::store::Store;
+
+/// The statuses offered by the info-panel dropdown (every real status; `Unknown`
+/// is the "no status" sentinel and isn't something you set).
+const STATUS_CHOICES: [Status; 7] = [
+    Status::Concept,
+    Status::Draft,
+    Status::Active,
+    Status::Dormant,
+    Status::Complete,
+    Status::Archived,
+    Status::Superseded,
+];
 
 fn main() -> eframe::Result<()> {
     let root = std::env::args()
@@ -600,6 +613,28 @@ impl PhanesApp {
         self.graph = None; // rebuilt next time the Graph tab is opened
     }
 
+    /// Write a new asserted status into the selected note's file (deterministic,
+    /// via `scaffold::set_status`), then re-index and refresh. Applied to the
+    /// in-memory buffer so any open edits persist too rather than being clobbered.
+    fn set_selected_status(&mut self, status: Status) {
+        let Some(idea) = &self.selected_idea else { return };
+        if idea.status.value == status {
+            return;
+        }
+        let path = idea.path.clone();
+        let updated = scaffold::set_status(&self.buffer, status);
+        if std::fs::write(&path, &updated).is_ok() {
+            self.buffer = updated.clone();
+            self.saved = updated;
+            self.status_msg = Some(format!("status → {}", status.as_str()));
+            if let Some(store) = &mut self.store {
+                let opts = IndexOptions { enrich: false, embed: false, force: false };
+                let _ = indexer::run(store, &self.root, &opts);
+            }
+            self.reload_after_index();
+        }
+    }
+
     /// Re-index the folder in place (deterministic, no model) and refresh the
     /// explorer, graph, and current view — so new or edited notes appear without
     /// restarting. The semantic/proposed layers still need a CLI `--embed` /
@@ -684,6 +719,7 @@ impl eframe::App for PhanesApp {
                 ui.heading("Info");
                 ui.separator();
                 let mut clicked = None;
+                let mut new_status = None;
                 match &self.selected_idea {
                     None => {
                         ui.weak("(select a note)");
@@ -691,10 +727,21 @@ impl eframe::App for PhanesApp {
                     Some(idea) => {
                         ui.horizontal(|ui| {
                             ui.strong("status");
-                            ui.colored_label(
-                                status_color(idea.status.value),
-                                idea.status.value.as_str(),
-                            );
+                            egui::ComboBox::from_id_salt("info_status")
+                                .selected_text(
+                                    egui::RichText::new(idea.status.value.as_str())
+                                        .color(status_color(idea.status.value)),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for s in STATUS_CHOICES {
+                                        if ui
+                                            .selectable_label(idea.status.value == s, s.as_str())
+                                            .clicked()
+                                        {
+                                            new_status = Some(s);
+                                        }
+                                    }
+                                });
                             prov_badge(ui, idea.status.source);
                         });
                         if let Some(date) = idea.last_reviewed {
@@ -773,9 +820,13 @@ impl eframe::App for PhanesApp {
                         }
                     }
                 }
-                clicked
+                (clicked, new_status)
             });
-        if let Some(id) = right.inner {
+        let (clicked, new_status) = right.inner;
+        if let Some(s) = new_status {
+            self.set_selected_status(s);
+        }
+        if let Some(id) = clicked {
             self.select(id);
         }
 

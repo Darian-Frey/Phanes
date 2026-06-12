@@ -6,6 +6,8 @@
 
 use chrono::NaiveDate;
 
+use crate::model::Status;
+
 /// Filename (no directory) for a new note with this title: the title with
 /// filesystem-reserved characters replaced by `-`, plus the `.md` extension.
 pub fn filename(title: &str) -> String {
@@ -44,6 +46,71 @@ pub fn note_body(title: &str, tags: &[String], today: NaiveDate) -> String {
     out
 }
 
+/// Set (or insert) a note's asserted status in its raw text, returning the new
+/// content. Replaces an existing blockquote `> **Status:** …` line or a YAML
+/// frontmatter `status:` key; if the note has neither, prepends a blockquote
+/// status line. The result round-trips through `parser::parse`. Used by the UI's
+/// status dropdown.
+pub fn set_status(raw: &str, status: Status) -> String {
+    let label = capitalize(status.as_str());
+    let trailing_newline = raw.ends_with('\n');
+    let mut lines: Vec<String> = raw.lines().map(str::to_string).collect();
+
+    // 1. Replace an existing blockquote status line.
+    for line in lines.iter_mut() {
+        if is_blockquote_status(line) {
+            *line = format!("> **Status:** {label}");
+            return join_lines(&lines, trailing_newline);
+        }
+    }
+
+    // 2. Replace (or insert) a `status:` key inside leading YAML frontmatter.
+    if lines.first().map(|l| l.trim()) == Some("---") {
+        if let Some(rel_end) = lines.iter().skip(1).position(|l| l.trim() == "---") {
+            let end = rel_end + 1; // index of the closing `---`
+            for line in &mut lines[1..end] {
+                if line.trim_start().to_ascii_lowercase().starts_with("status:") {
+                    *line = format!("status: {}", status.as_str());
+                    return join_lines(&lines, trailing_newline);
+                }
+            }
+            lines.insert(1, format!("status: {}", status.as_str()));
+            return join_lines(&lines, trailing_newline);
+        }
+    }
+
+    // 3. No status anywhere — prepend a blockquote status line.
+    format!("> **Status:** {label}\n\n{raw}")
+}
+
+/// True for a blockquote line whose field is `Status:` (anchored, so a prose line
+/// like `> **Why this status**:` doesn't match).
+fn is_blockquote_status(line: &str) -> bool {
+    let Some(rest) = line.trim_start().strip_prefix('>') else {
+        return false;
+    };
+    rest.replace("**", "")
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("status:")
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+fn join_lines(lines: &[String], trailing_newline: bool) -> String {
+    let mut s = lines.join("\n");
+    if trailing_newline {
+        s.push('\n');
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,5 +145,41 @@ mod tests {
         assert_eq!(filename("A/B: C"), "A-B- C.md");
         assert_eq!(filename("   "), "untitled.md");
         assert_eq!(filename("CircuitMind"), "CircuitMind.md");
+    }
+
+    #[test]
+    fn set_status_replaces_blockquote() {
+        let raw = "> **Status**: Concept\n> **Why this status**: x\n\n# T\n";
+        let out = set_status(raw, Status::Active);
+        assert!(out.contains("> **Status:** Active"));
+        assert!(!out.contains("Concept"));
+        assert!(out.contains("Why this status")); // the prose line is untouched
+        assert_eq!(parser::parse("t", &out).status, Some(Status::Active));
+    }
+
+    #[test]
+    fn set_status_inserts_when_missing() {
+        let raw = "# Just a title\n\nsome body\n";
+        let out = set_status(raw, Status::Draft);
+        assert!(out.starts_with("> **Status:** Draft"));
+        assert!(out.contains("# Just a title"));
+        let doc = parser::parse("t", &out);
+        assert_eq!(doc.status, Some(Status::Draft));
+        assert_eq!(doc.title, "Just a title");
+    }
+
+    #[test]
+    fn set_status_replaces_frontmatter_key() {
+        let raw = "---\nstatus: dormant\ntags: [\"x\"]\n---\n\n# T\n";
+        let out = set_status(raw, Status::Complete);
+        assert_eq!(parser::parse("t", &out).status, Some(Status::Complete));
+        assert!(out.contains("tags: [\"x\"]")); // preserved
+    }
+
+    #[test]
+    fn set_status_inserts_frontmatter_key_when_absent() {
+        let raw = "---\ntags: [\"x\"]\n---\n\n# T\n";
+        let out = set_status(raw, Status::Active);
+        assert_eq!(parser::parse("t", &out).status, Some(Status::Active));
     }
 }
