@@ -11,8 +11,11 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   `phanes bridge <a> <b>` command ask the local model for one idea connecting two
   notes. The first query-time model use — an explicit, opt-in generative action
   outside the instant query paths (D-015; INV-1 reworded). Behind `--features
-  enrich`; graceful on failure. Live-verified against LM Studio. UI invocation
-  (click a gap edge) is a follow-up.
+  enrich`; graceful on failure. Live-verified against LM Studio. Also invocable
+  by clicking a dashed gap edge in the graph — the model call runs on a background
+  thread (channel back to the UI), so the window stays responsive; the result
+  shows in a floating panel. Build the UI with `--features ui,enrich`. A graph
+  stats overlay shows notes · links (· clusters · orphans with Gaps on).
 - F-013 Relationship graph view + gap analysis. New `graph.rs` builds the graph
   (links + shared tags + semantic edges) and analyses it (connected components,
   orphans, candidate bridges) — deterministic, rebuilt from the index (INV-3).

@@ -75,9 +75,11 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   even spacing.
 - **Done (model-proposed bridges):** `enrich::propose_bridge` + the `bridge a b`
   command generate an idea connecting two notes — the first query-time model use,
-  an explicit opt-in generative action (D-015, INV-1 carve-out). Live-verified.
-  Follow-up: invoke it from a click on a gap edge in the graph (needs a background
-  thread so the model call doesn't freeze the UI).
+  an explicit opt-in generative action (D-015, INV-1 carve-out). Also invocable by
+  clicking a dashed gap edge in the UI graph; the model call runs on a background
+  thread (mpsc channel → floating result window) so the UI never freezes. Build
+  the UI with bridges via `cargo run --features ui,enrich --bin phanes-ui -- ideas`.
+  A canvas stats overlay shows notes/links/clusters/orphans. Live-verified.
 - **Not yet built:** the remaining FEATURES.md candidates (taxonomy-aware tags,
   propose→accept links, RAG "ask" mode, open-in-$EDITOR, the gap overlay).
 

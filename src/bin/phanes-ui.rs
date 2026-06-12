@@ -46,6 +46,21 @@ enum Mode {
     Graph,
 }
 
+/// What a click on the graph canvas resolved to.
+enum GraphAction {
+    Select(String),
+    Bridge(String, String),
+}
+
+/// State of an on-demand bridge proposal (the model call runs on a background
+/// thread so the window never freezes).
+enum BridgeState {
+    None,
+    Proposing { a: String, b: String },
+    Done { a: String, b: String, text: String },
+    Error(String),
+}
+
 /// A folder in the explorer: subdirectories plus the notes directly in it.
 #[derive(Default)]
 struct Tree {
@@ -114,6 +129,9 @@ struct PhanesApp {
     graph_zoom: f32,
     graph_alpha: f32, // sim "temperature": cools to settle, reheats on drag
     show_gaps: bool,  // overlay orphans + candidate bridges
+    // model-proposed bridge (background thread + channel)
+    bridge: BridgeState,
+    bridge_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<String>>>,
 }
 
 impl PhanesApp {
@@ -154,6 +172,103 @@ impl PhanesApp {
             graph_zoom: 1.0,
             graph_alpha: 1.0,
             show_gaps: false,
+            bridge: BridgeState::None,
+            bridge_rx: None,
+        }
+    }
+
+    /// Kick off a bridge proposal between two notes on a background thread. The
+    /// model call is gated on the `enrich` feature (D-015); without it, the UI
+    /// just reports how to enable it.
+    fn start_bridge(&mut self, a_id: &str, b_id: &str) {
+        let notes = self.store.as_ref().and_then(|s| {
+            let a = query::get(s, a_id).ok().flatten()?;
+            let b = query::get(s, b_id).ok().flatten()?;
+            Some((a, b))
+        });
+        let Some((a, b)) = notes else { return };
+        self.bridge = BridgeState::Proposing { a: a.title.clone(), b: b.title.clone() };
+        self.bridge_rx = None;
+
+        #[cfg(feature = "enrich")]
+        {
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.bridge_rx = Some(rx);
+            let (at, ab, bt, bb) = (a.title, a.body, b.title, b.body);
+            std::thread::spawn(move || {
+                let _ = tx.send(phanes::enrich::propose_bridge(&at, &ab, &bt, &bb));
+            });
+        }
+        #[cfg(not(feature = "enrich"))]
+        {
+            let _ = (a, b);
+            self.bridge =
+                BridgeState::Error("rebuild with `--features ui,enrich` to propose bridges".into());
+        }
+    }
+
+    /// Poll the background bridge worker; transition the state when it finishes.
+    fn poll_bridge(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.bridge_rx else { return };
+        match rx.try_recv() {
+            Ok(result) => {
+                let (a, b) = match &self.bridge {
+                    BridgeState::Proposing { a, b } => (a.clone(), b.clone()),
+                    _ => (String::new(), String::new()),
+                };
+                self.bridge = match result {
+                    Ok(text) => BridgeState::Done { a, b, text },
+                    Err(e) => BridgeState::Error(format!("bridge failed: {e}")),
+                };
+                self.bridge_rx = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.bridge = BridgeState::Error("bridge worker stopped unexpectedly".into());
+                self.bridge_rx = None;
+            }
+        }
+    }
+
+    /// Floating window showing the in-progress / finished bridge proposal.
+    fn bridge_window(&mut self, ctx: &egui::Context) {
+        if matches!(self.bridge, BridgeState::None) {
+            return;
+        }
+        let mut close = false;
+        egui::Window::new("Proposed bridge")
+            .collapsible(false)
+            .resizable(true)
+            .default_width(380.0)
+            .show(ctx, |ui| {
+                match &self.bridge {
+                    BridgeState::Proposing { a, b } => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label("Proposing a bridge…");
+                        });
+                        ui.add_space(4.0);
+                        ui.weak(format!("{a}  ↕  {b}"));
+                    }
+                    BridgeState::Done { a, b, text } => {
+                        ui.strong(a.as_str());
+                        ui.weak("↕");
+                        ui.strong(b.as_str());
+                        ui.separator();
+                        ui.label(text.as_str());
+                    }
+                    BridgeState::Error(msg) => {
+                        ui.colored_label(egui::Color32::from_rgb(235, 140, 90), msg.as_str());
+                    }
+                    BridgeState::None => {}
+                }
+                ui.separator();
+                if ui.button("Close").clicked() {
+                    close = true;
+                }
+            });
+        if close {
+            self.bridge = BridgeState::None;
         }
     }
 
@@ -244,8 +359,9 @@ impl PhanesApp {
         self.graph_alpha *= 0.975; // cool toward a settled layout
     }
 
-    /// Draw the graph canvas; returns a clicked node's id, if any.
-    fn graph_ui(&mut self, ui: &mut egui::Ui) -> Option<String> {
+    /// Draw the graph canvas; returns what a click resolved to (a node, or a
+    /// candidate-bridge edge when the Gaps overlay is on).
+    fn graph_ui(&mut self, ui: &mut egui::Ui) -> Option<GraphAction> {
         self.ensure_graph();
         self.simulate();
 
@@ -355,6 +471,22 @@ impl PhanesApp {
             }
         }
 
+        // Stats overlay (top-left of the canvas).
+        let mut stats = format!("{} notes · {} links", g.nodes.len(), g.edges.len());
+        if self.show_gaps {
+            let mut comps = g.components();
+            comps.sort_unstable();
+            comps.dedup();
+            stats += &format!(" · {} clusters · {} orphans", comps.len(), g.orphans().len());
+        }
+        painter.text(
+            resp.rect.min + egui::vec2(8.0, 6.0),
+            egui::Align2::LEFT_TOP,
+            stats,
+            egui::FontId::proportional(12.0),
+            egui::Color32::from_gray(150),
+        );
+
         // Keep animating only while the layout is still warm (or being dragged);
         // a settled graph stays static until the next interaction.
         if self.graph_alpha > 0.008 || self.pinned.is_some() {
@@ -363,7 +495,23 @@ impl PhanesApp {
 
         if resp.clicked() {
             if let Some(i) = hovered {
-                return Some(g.nodes[i].id.clone());
+                return Some(GraphAction::Select(g.nodes[i].id.clone()));
+            }
+            // Not on a node — if the gap overlay is on, a click near a dashed
+            // bridge proposes an idea connecting its two notes.
+            if self.show_gaps {
+                if let Some(pos) = resp.interact_pointer_pos().or_else(|| resp.hover_pos()) {
+                    for e in g.bridges(8) {
+                        let a = to_screen(self.layout[e.a]);
+                        let b = to_screen(self.layout[e.b]);
+                        if dist_to_segment(pos, a, b) < 6.0 {
+                            return Some(GraphAction::Bridge(
+                                g.nodes[e.a].id.clone(),
+                                g.nodes[e.b].id.clone(),
+                            ));
+                        }
+                    }
+                }
             }
         }
         None
@@ -608,7 +756,7 @@ impl eframe::App for PhanesApp {
         // --- centre: editor / graph ---
         let central = egui::CentralPanel::default().show_inside(ui, |ui| {
             let mut save_requested = false;
-            let mut node_clicked = None;
+            let mut action: Option<GraphAction> = None;
 
             ui.horizontal(|ui| {
                 if ui.selectable_label(self.mode == Mode::View, "View").clicked() {
@@ -625,7 +773,11 @@ impl eframe::App for PhanesApp {
                     ui.checkbox(&mut self.show_gaps, "Gaps")
                         .on_hover_text("Highlight orphans and candidate bridges");
                     ui.separator();
-                    ui.weak("scroll = zoom · drag = pan · click a node");
+                    if self.show_gaps {
+                        ui.weak("drag a node · click a dashed bridge to propose an idea");
+                    } else {
+                        ui.weak("scroll = zoom · drag = pan · click a node");
+                    }
                 } else {
                     let dirty = self.dirty();
                     if ui
@@ -646,7 +798,7 @@ impl eframe::App for PhanesApp {
             ui.separator();
 
             if self.mode == Mode::Graph {
-                node_clicked = self.graph_ui(ui);
+                action = self.graph_ui(ui);
             } else if self.selected_idea.is_none() {
                 ui.weak("Select a note from the left.");
             } else {
@@ -668,16 +820,33 @@ impl eframe::App for PhanesApp {
                     save_requested = true;
                 }
             }
-            (save_requested, node_clicked)
+            (save_requested, action)
         });
-        let (save_requested, node_clicked) = central.inner;
+        let (save_requested, action) = central.inner;
         if save_requested && self.dirty() {
             self.save();
         }
-        if let Some(id) = node_clicked {
-            self.select(id);
+        match action {
+            Some(GraphAction::Select(id)) => self.select(id),
+            Some(GraphAction::Bridge(a, b)) => self.start_bridge(&a, &b),
+            None => {}
         }
+
+        // Background bridge worker + its floating result window.
+        self.poll_bridge(ui.ctx());
+        self.bridge_window(ui.ctx());
     }
+}
+
+/// Distance from point `p` to the segment `a`–`b`.
+fn dist_to_segment(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
+    let ab = b - a;
+    let len2 = ab.length_sq();
+    if len2 <= f32::EPSILON {
+        return p.distance(a);
+    }
+    let t = ((p - a).dot(ab) / len2).clamp(0.0, 1.0);
+    p.distance(a + ab * t)
 }
 
 /// Edge colour by relationship kind, faded by weight.
