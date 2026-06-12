@@ -28,16 +28,8 @@ fn model_id() -> String {
 /// failure so the caller keeps the note vector-less rather than failing the pass.
 pub fn embed(text: &str) -> Result<Vec<f32>> {
     let payload = json!({ "model": model_id(), "input": truncate(text, 8000) });
-
-    let client = reqwest::blocking::Client::new();
-    let resp = client
-        .post(endpoint())
-        .json(&payload)
-        .send()
-        .context("POST to the embedding server failed (is LM Studio / the server running?)")?
-        .error_for_status()?;
-
-    let raw: serde_json::Value = resp.json().context("embedding server returned non-JSON")?;
+    // Shares the retry-on-cold-load POST helper with the chat client (IMP-001).
+    let raw = crate::enrich::post_json(&endpoint(), &payload)?;
     parse_embedding(&raw)
 }
 

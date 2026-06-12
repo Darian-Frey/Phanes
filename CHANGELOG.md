@@ -89,9 +89,11 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   retained for the optional llama.cpp-native path.
 
 ### Fixed
+- Model requests now retry on a cold-load transport failure (backoff + connect/
+  request timeouts), so the first call after the server JIT-loads a model no
+  longer fails — affected enrich, embed, and bridge (IMP-001).
 - Silenced the indexer's conditional `unused_mut` warning — the `idea` binding is
   only mutated when `--features enrich` is compiled in.
 - Wikilink extraction no longer mistakes TOML table-arrays (`[[shaft]]`) or
   inline code spans for links — it now skips fenced code blocks and code spans
-  via pulldown-cmark's offset iterator. (To be backfilled as BUG-001 when
-  BUGS.md is added.)
+  via pulldown-cmark's offset iterator (BUG-001).

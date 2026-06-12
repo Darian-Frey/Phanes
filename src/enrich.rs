@@ -100,15 +100,7 @@ fn chat(system: &str, user: &str, response_format: Option<serde_json::Value>, ma
         payload["response_format"] = rf;
     }
 
-    let client = reqwest::blocking::Client::new();
-    let resp = client
-        .post(endpoint())
-        .json(&payload)
-        .send()
-        .context("POST to the local model server failed (is LM Studio / the server running?)")?
-        .error_for_status()?;
-
-    let raw: serde_json::Value = resp.json().context("model server returned non-JSON")?;
+    let raw = post_json(&endpoint(), &payload)?;
     raw.get("choices")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("message"))
@@ -116,6 +108,48 @@ fn chat(system: &str, user: &str, response_format: Option<serde_json::Value>, ma
         .and_then(|c| c.as_str())
         .map(|s| s.to_string())
         .context("no choices[0].message.content in the model server response")
+}
+
+/// POST JSON to a local model endpoint and return the parsed response, retrying
+/// a few times on a transport or 5xx failure. The first request after the server
+/// JIT-loads a model often fails (the connection is refused while loading), then
+/// succeeds once it's warm — so a short backoff makes cold starts seamless
+/// (IMP-001). A connect timeout makes a genuinely-down server fail fast.
+pub(crate) fn post_json(url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(180))
+        .build()
+        .context("failed to build HTTP client")?;
+
+    let backoffs_ms = [0u64, 1500, 3000];
+    let mut last: Option<anyhow::Error> = None;
+    for delay in backoffs_ms {
+        if delay > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(delay));
+        }
+        match client.post(url).json(payload).send() {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    return resp.json().context("model server returned non-JSON");
+                }
+                let body: String = resp.text().unwrap_or_default().chars().take(200).collect();
+                let err = anyhow::anyhow!("model server returned {status}: {body}");
+                if status.is_server_error() {
+                    last = Some(err); // 5xx — transient, retry
+                } else {
+                    return Err(err); // 4xx — won't change on retry
+                }
+            }
+            Err(e) => {
+                last = Some(anyhow::Error::new(e).context(format!(
+                    "POST to {url} failed (is LM Studio / the server running?)"
+                )));
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("model request failed")))
 }
 
 /// Run extraction against the local model. Returns `Err` on any transport or

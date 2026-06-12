@@ -120,7 +120,7 @@ server (D-012), not llama.cpp native.
   (`development_documentation.md`): append-only stable IDs (F-/D-/BUG-/IMP-), log
   bugs/improvements when found rather than silently fixing them (Rule 8), and
   treat docs as part of the commit (Rule 7). See FEATURES.md, ARCHITECTURE.md,
-  DECISIONS.md.
+  DECISIONS.md, BUGS.md, IMPROVEMENTS.md.
 - Commit and push only when Shane asks.
 - Crate versions in Cargo.toml are best-effort as of 2026-06; bump as needed.
 - Verify changes with `cargo test --lib`, both with and without

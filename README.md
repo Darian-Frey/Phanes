@@ -63,6 +63,7 @@ examples/     sample notes documenting the convention
 - [Architecture](ARCHITECTURE.md) — modules, data flow, invariants
 - [Decisions](DECISIONS.md) — design rationale (D-001…) with reversal conditions
 - [Roadmap](ROADMAP.md) — phased plan
+- [Bugs](BUGS.md) · [Improvements](IMPROVEMENTS.md) — logged when found (Rule 8)
 - [Changelog](CHANGELOG.md) — what changed and when
 - [CLAUDE.md](CLAUDE.md) — AI-session handoff
 - [Development Documentation Standard](development_documentation.md) — the doc conventions this project follows
