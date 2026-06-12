@@ -113,6 +113,7 @@ struct PhanesApp {
     graph_pan: egui::Pos2, // world point shown at the canvas centre
     graph_zoom: f32,
     graph_alpha: f32, // sim "temperature": cools to settle, reheats on drag
+    show_gaps: bool,  // overlay orphans + candidate bridges
 }
 
 impl PhanesApp {
@@ -152,6 +153,7 @@ impl PhanesApp {
             graph_pan: egui::Pos2::ZERO,
             graph_zoom: 1.0,
             graph_alpha: 1.0,
+            show_gaps: false,
         }
     }
 
@@ -199,11 +201,19 @@ impl PhanesApp {
         let k = 80.0_f32; // ideal edge length
         let mut force = vec![egui::Vec2::ZERO; n];
 
+        let min_sep = 28.0_f32; // node diameter + breathing room (collision radius)
         for i in 0..n {
             for j in (i + 1)..n {
                 let d = self.layout[i] - self.layout[j];
                 let dist = d.length().max(1.0);
-                let push = d / dist * (k * k / dist);
+                let dir = d / dist;
+                // Long-range Fruchterman-Reingold repulsion.
+                let mut push = dir * (k * k / dist);
+                // Short-range collision shove (d3's forceCollide): the main fix
+                // for a lumpy layout — keeps nodes from clumping into blobs.
+                if dist < min_sep {
+                    push += dir * ((min_sep - dist) * 3.0);
+                }
                 force[i] += push;
                 force[j] -= push;
             }
@@ -315,6 +325,34 @@ impl PhanesApp {
         }
         if let Some(i) = hovered {
             draw_label(&painter, to_screen(self.layout[i]), &g.nodes[i].title);
+        }
+
+        // Gap overlay: the strongest candidate bridges (dashed, with %), and any
+        // orphan ideas (ringed + always labelled).
+        if self.show_gaps {
+            for e in g.bridges(8) {
+                let a = to_screen(self.layout[e.a]);
+                let b = to_screen(self.layout[e.b]);
+                painter.extend(egui::Shape::dashed_line(
+                    &[a, b],
+                    egui::Stroke::new(1.8, PROPOSED),
+                    6.0,
+                    4.0,
+                ));
+                painter.text(
+                    a + (b - a) * 0.5,
+                    egui::Align2::CENTER_CENTER,
+                    format!("{:.0}%", e.weight * 100.0),
+                    egui::FontId::proportional(10.0),
+                    PROPOSED,
+                );
+            }
+            let orphan_ring = egui::Color32::from_rgb(235, 140, 90);
+            for i in g.orphans() {
+                let p = to_screen(self.layout[i]);
+                painter.circle_stroke(p, 11.0, egui::Stroke::new(2.0, orphan_ring));
+                draw_label(&painter, p, &g.nodes[i].title);
+            }
         }
 
         // Keep animating only while the layout is still warm (or being dragged);
@@ -584,6 +622,9 @@ impl eframe::App for PhanesApp {
                 }
                 ui.separator();
                 if self.mode == Mode::Graph {
+                    ui.checkbox(&mut self.show_gaps, "Gaps")
+                        .on_hover_text("Highlight orphans and candidate bridges");
+                    ui.separator();
                     ui.weak("scroll = zoom · drag = pan · click a node");
                 } else {
                     let dirty = self.dirty();

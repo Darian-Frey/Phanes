@@ -143,8 +143,11 @@ Related: D-001, D-003, D-012, D-013.
   labels, drag a node (neighbours spring along, then settle), click to select.
 - `phanes gaps` lists orphan ideas and candidate bridges (strong semantic pairs
   not explicitly linked); `graph::{components, orphans, bridges}` compute these.
-**Status:** Complete (post-roadmap) — hand-rolled (D-014). Follow-up: draw the gap
-overlay (orphans/bridges) on the canvas; optionally let the model propose a bridge.
+- A "Gaps" toggle overlays orphans (ringed + labelled) and the top candidate
+  bridges (dashed, `%`-labelled) directly on the graph.
+**Status:** Complete (post-roadmap) — hand-rolled (D-014); the layout uses a
+collision force (d3 `forceCollide`-style) for even spacing. Follow-up: optionally
+let the model propose a bridging idea per gap.
 **Notes:** The graph is rebuilt from the index, never stored (INV-3); semantic
 edges use the stored vectors (INV-1). Related: D-013, D-014.
 
@@ -175,8 +178,8 @@ chat) does not and is flagged.
 ### Spatial / graph layer (matches the spatial-first preference)
 
 - Graph / map view and gap detection — **shipped as F-013** (force-directed UI
-  graph + `gaps` CLI). Remaining: draw the gap overlay on the canvas, and
-  optionally have the model *propose* a bridging idea per detected gap.
+  graph + `gaps` CLI + on-canvas gap overlay). Remaining: optionally have the
+  model *propose* a bridging idea per detected gap.
 - **Stale triage with a proposed next step** — each rotting note (from `stale`)
   gets a proposed revival prompt / next action.
 - **Cluster + orphan overview** — surface dense clusters and unconnected notes

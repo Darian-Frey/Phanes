@@ -14,7 +14,10 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   semantic pairs not explicitly linked). The UI gains a `Graph` tab: a
   hand-rolled force-directed, status-tinted node graph (D-014) with pan/zoom,
   hover labels, drag-a-node (neighbours spring along; alpha-cooled to settle),
-  and click-to-select. No new dependencies.
+  and click-to-select. A "Gaps" toggle overlays orphans (ringed) and the top
+  candidate bridges (dashed, `%`-labelled) on the canvas. The layout uses a
+  collision force (d3 `forceCollide`-style) for even, non-lumpy node spacing.
+  No new dependencies.
 - F-012 Semantic "near this". `phanes index --embed` (with `--features enrich`)
   stores one embedding vector per changed note via a local embedding model
   (OpenAI `/v1/embeddings`; env `PHANES_EMBED_URL` / `PHANES_EMBED_MODEL`).
