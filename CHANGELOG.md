@@ -68,7 +68,8 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   click-to-navigate. The three-panel UI is feature-complete.
 - `phanes-ui` indexes its root folder on startup (hash-gated, no enrichment), so
   it works when pointed at a never-indexed folder; shows an empty-state hint when
-  a folder has no notes.
+  a folder has no notes. A ⟳ Scan button in the explorer re-indexes in place
+  (deterministic, no model), so new/edited/deleted notes appear without a restart.
 - F-011 Tinted bordered table output (`tabled` + `owo-colors`, TTY-gated).
 - `Status` enum gains `Concept` and `Draft` variants (D-007), kept in lockstep
   with `grammars/idea_extract.gbnf`.

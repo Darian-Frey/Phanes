@@ -599,6 +599,19 @@ impl PhanesApp {
         self.near = near;
         self.graph = None; // rebuilt next time the Graph tab is opened
     }
+
+    /// Re-index the folder in place (deterministic, no model) and refresh the
+    /// explorer, graph, and current view — so new or edited notes appear without
+    /// restarting. The semantic/proposed layers still need a CLI `--embed` /
+    /// `--enrich` pass (those are slow model calls).
+    fn rescan(&mut self) {
+        if let Some(store) = &mut self.store {
+            let opts = IndexOptions { enrich: false, embed: false, force: false };
+            let _ = indexer::run(store, &self.root, &opts);
+        }
+        self.reload_after_index();
+        self.run_filter();
+    }
 }
 
 impl eframe::App for PhanesApp {
@@ -608,10 +621,20 @@ impl eframe::App for PhanesApp {
             .resizable(true)
             .default_size(260.0)
             .show_inside(ui, |ui| {
-                ui.heading("Ideas");
+                let mut rescan = false;
+                ui.horizontal(|ui| {
+                    ui.heading("Ideas");
+                    if ui
+                        .button("⟳ Scan")
+                        .on_hover_text("Re-index the folder — picks up new or edited notes")
+                        .clicked()
+                    {
+                        rescan = true;
+                    }
+                });
                 if let Some(err) = &self.error {
                     ui.colored_label(egui::Color32::RED, format!("index error: {err}"));
-                    return (false, None);
+                    return (false, None, rescan);
                 }
 
                 let filter_changed = ui
@@ -640,9 +663,12 @@ impl eframe::App for PhanesApp {
                         }
                     }
                 });
-                (filter_changed, clicked)
+                (filter_changed, clicked, rescan)
             });
-        let (filter_changed, clicked) = left.inner;
+        let (filter_changed, clicked, rescan) = left.inner;
+        if rescan {
+            self.rescan();
+        }
         if filter_changed {
             self.run_filter();
         }
