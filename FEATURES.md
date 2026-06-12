@@ -145,9 +145,11 @@ Related: D-001, D-003, D-012, D-013.
   not explicitly linked); `graph::{components, orphans, bridges}` compute these.
 - A "Gaps" toggle overlays orphans (ringed + labelled) and the top candidate
   bridges (dashed, `%`-labelled) directly on the graph.
-**Status:** Complete (post-roadmap) — hand-rolled (D-014); the layout uses a
-collision force (d3 `forceCollide`-style) for even spacing. Follow-up: optionally
-let the model propose a bridging idea per gap.
+- `phanes bridge <a> <b>` asks the local model for one idea connecting two notes
+  — an explicit, opt-in generative action outside the instant query paths (D-015).
+**Status:** Complete (post-roadmap) — hand-rolled (D-014); collision-force layout;
+model-proposed bridges shipped as the `bridge` command. Follow-up: invoke bridge
+proposal from a click on a gap edge in the UI (needs a background thread).
 **Notes:** The graph is rebuilt from the index, never stored (INV-3); semantic
 edges use the stored vectors (INV-1). Related: D-013, D-014.
 

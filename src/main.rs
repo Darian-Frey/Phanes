@@ -41,6 +41,16 @@ fn main() -> Result<()> {
             let g = phanes::graph::build(&store, &phanes::graph::GraphOptions::default())?;
             print_gaps(&g);
         }
+        Command::Bridge { a, b } => {
+            match (query::resolve(&store, &a)?, query::resolve(&store, &b)?) {
+                (Some(ida), Some(idb)) => {
+                    let na = query::get(&store, &ida)?.expect("resolved id exists");
+                    let nb = query::get(&store, &idb)?.expect("resolved id exists");
+                    propose_bridge_cli(&na, &nb);
+                }
+                _ => println!("could not resolve both notes (need two existing ids/titles)"),
+            }
+        }
         Command::Show { id_or_title } => match query::resolve(&store, &id_or_title)? {
             Some(id) => {
                 let idea = query::get(&store, &id)?.expect("a resolved id always exists");
@@ -173,6 +183,22 @@ fn print_idea(idea: &Idea, related: &[query::Hit]) {
         }
     }
     println!();
+}
+
+/// Resolve + render a model-proposed bridge between two notes. The model call is
+/// gated on the `enrich` feature (D-015); the analysis around it is deterministic.
+fn propose_bridge_cli(a: &Idea, b: &Idea) {
+    println!("\n{}\n  ↕\n{}\n", a.title, b.title);
+    #[cfg(feature = "enrich")]
+    match phanes::enrich::propose_bridge(&a.title, &a.body, &b.title, &b.body) {
+        Ok(idea) => println!("Proposed bridge:\n  {idea}\n"),
+        Err(e) => println!("bridge failed: {e}\n"),
+    }
+    #[cfg(not(feature = "enrich"))]
+    {
+        let _ = (a, b);
+        println!("(build with --features enrich, and run a model server, to propose a bridge)\n");
+    }
 }
 
 /// Print the structural gap analysis: orphan ideas and candidate bridges.

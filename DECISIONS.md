@@ -435,3 +435,38 @@ core); the UI's `Graph` tab renders it with a hand-rolled FR layout. No new deps
 **Reversal conditions.** Revisit if `egui_graphs` catches up to egui's version,
 or if richer analysis (centrality, community detection for cluster-level gaps)
 makes `petgraph` worth the dependency.
+
+### D-015 Allow explicit, user-invoked model generation (bridges) outside index time
+**Decided:** 2026-06-12
+**Recorded:** 2026-06-12
+**Status:** Accepted
+**Authors:** Shane Hartley
+**Related:** F-013, INV-1, D-012
+
+**Context.** Model-proposed bridges generate an idea connecting two notes the
+user picks — inherently on-demand (the N² pairs can't be precomputed at index
+time). This is the first model use *outside* `indexer::run`, which the original
+INV-1 forbade ("no query path may invoke the model").
+
+**Options.**
+- **A. Forgo query-time model calls** (drop the feature). Rejected: loses a
+  headline idea-generation capability.
+- **B. Carve out an explicit, user-invoked "generative action" category** that may
+  call the model, while the instant query paths stay model-free. Chosen.
+
+**Decision.** `enrich::propose_bridge` (behind the `enrich` feature) runs only
+when the user explicitly asks — the `bridge` command, and later a click on a gap
+edge in the graph. The instant daily-driver paths (`search`, `stale`, `related`,
+`show`, `near`) never invoke the model and remain offline. Failures degrade
+gracefully (reported, never crash).
+
+**Consequences.**
+- INV-1 is reworded: the model runs at index time for automatic enrichment, **and**
+  on explicit user-invoked generative actions; the instant queries stay offline.
+- Opens the door to a future RAG "Ask" mode under the same bounded category.
+- Such actions are slow and online — they must always be opt-in, never wired into
+  a path a user expects to be instant.
+
+**Reversal conditions.** Revisit if query-time model use starts leaking into the
+hot paths or undermines the fast/offline promise; if so, move generative actions
+behind an even harder boundary (separate binary, or explicit "online mode").

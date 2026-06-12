@@ -5,11 +5,14 @@ that must not drift.
 
 ## Invariants (non-negotiable)
 
-- **INV-1 — Index-time-only model.** The enrichment model is called *only* in
-  `indexer::run`, *only* for files whose `content_hash` changed (or under
-  `--force`). No query path may invoke it. This is what keeps the daily-driver
-  CLI fast and offline. The hash gate is already implemented in `indexer.rs`;
-  do not bypass it.
+- **INV-1 — Model stays out of the hot path.** Automatic enrichment and
+  embedding run *only* at index time (`indexer::run`, hash-gated). The instant
+  query paths — `search` / `stale` / `related` / `show` / `near` — never invoke
+  the model and stay offline. The one exception is **explicitly user-invoked
+  generative actions** (the `bridge` command; a future `ask` mode): opt-in,
+  clearly separate from the daily-driver queries, and graceful on failure
+  (D-015). The hash gate in `indexer.rs` is load-bearing; do not bypass it, and
+  never wire the model into a path a user expects to be instant.
 - **INV-2 — Proposed never overwrites asserted.** `model::Sourced<T>` tags every
   value with `Provenance::{Asserted, Proposed}`. Deterministic facts are
   asserted; model output is proposed. `indexer::merge_proposed` already enforces
@@ -69,7 +72,12 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   `phanes gaps` lists orphans + candidate bridges; the UI `Graph` tab is a
   hand-rolled force-directed view (D-014 — no egui_graphs/petgraph) with a
   "Gaps" overlay (orphans + dashed candidate bridges) and a collision force for
-  even spacing. Follow-up: model-proposed bridges.
+  even spacing.
+- **Done (model-proposed bridges):** `enrich::propose_bridge` + the `bridge a b`
+  command generate an idea connecting two notes — the first query-time model use,
+  an explicit opt-in generative action (D-015, INV-1 carve-out). Live-verified.
+  Follow-up: invoke it from a click on a gap edge in the graph (needs a background
+  thread so the model call doesn't freeze the UI).
 - **Not yet built:** the remaining FEATURES.md candidates (taxonomy-aware tags,
   propose→accept links, RAG "ask" mode, open-in-$EDITOR, the gap overlay).
 

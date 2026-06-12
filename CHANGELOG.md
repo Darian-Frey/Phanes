@@ -7,6 +7,12 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- Model-proposed bridges (F-013 follow-up): `enrich::propose_bridge` and a
+  `phanes bridge <a> <b>` command ask the local model for one idea connecting two
+  notes. The first query-time model use — an explicit, opt-in generative action
+  outside the instant query paths (D-015; INV-1 reworded). Behind `--features
+  enrich`; graceful on failure. Live-verified against LM Studio. UI invocation
+  (click a gap edge) is a follow-up.
 - F-013 Relationship graph view + gap analysis. New `graph.rs` builds the graph
   (links + shared tags + semantic edges) and analyses it (connected components,
   orphans, candidate bridges) — deterministic, rebuilt from the index (INV-3).

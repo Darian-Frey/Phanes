@@ -84,19 +84,21 @@ fn user_message(title: &str, body: &str) -> String {
     format!("# {title}\n{body}")
 }
 
-/// Run extraction against the local model. Returns `Err` on any transport or
-/// parse failure so the caller can fall back to an asserted-only record (INV-4).
-pub fn enrich(title: &str, body: &str) -> Result<Enrichment> {
-    let payload = json!({
+/// One chat-completion round trip; returns the assistant message content.
+/// Shared by extraction (with a json_schema) and bridge proposal (freeform).
+fn chat(system: &str, user: &str, response_format: Option<serde_json::Value>, max_tokens: u32) -> Result<String> {
+    let mut payload = json!({
         "model": model_id(),
         "messages": [
-            { "role": "system", "content": SYSTEM_PROMPT },
-            { "role": "user", "content": user_message(title, body) }
+            { "role": "system", "content": system },
+            { "role": "user", "content": user }
         ],
         "temperature": 0.0,
-        "max_tokens": 400,
-        "response_format": response_format()
+        "max_tokens": max_tokens
     });
+    if let Some(rf) = response_format {
+        payload["response_format"] = rf;
+    }
 
     let client = reqwest::blocking::Client::new();
     let resp = client
@@ -107,15 +109,49 @@ pub fn enrich(title: &str, body: &str) -> Result<Enrichment> {
         .error_for_status()?;
 
     let raw: serde_json::Value = resp.json().context("model server returned non-JSON")?;
-    let content = raw
-        .get("choices")
+    raw.get("choices")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("message"))
         .and_then(|m| m.get("content"))
         .and_then(|c| c.as_str())
-        .context("no choices[0].message.content in the model server response")?;
+        .map(|s| s.to_string())
+        .context("no choices[0].message.content in the model server response")
+}
 
-    parse_enrichment(content)
+/// Run extraction against the local model. Returns `Err` on any transport or
+/// parse failure so the caller can fall back to an asserted-only record (INV-4).
+pub fn enrich(title: &str, body: &str) -> Result<Enrichment> {
+    let content = chat(SYSTEM_PROMPT, &user_message(title, body), Some(response_format()), 400)?;
+    parse_enrichment(&content)
+}
+
+const BRIDGE_SYSTEM: &str = "You connect project ideas. Given two notes, propose \
+    ONE concrete new idea or project that bridges them — something that genuinely \
+    draws on both. Answer in 1-3 plain sentences, no preamble, no restating the \
+    inputs.";
+
+/// Propose a bridging idea connecting two notes. **On-demand / user-invoked**
+/// (e.g. the `bridge` command) — not part of the instant query paths, see D-015.
+/// `Err` on any failure so the caller can report it without crashing.
+pub fn propose_bridge(a_title: &str, a_body: &str, b_title: &str, b_body: &str) -> Result<String> {
+    let user = format!(
+        "Note A — {a_title}\n{}\n\nNote B — {b_title}\n{}\n\nPropose one idea that bridges A and B.",
+        truncate(a_body, 2500),
+        truncate(b_body, 2500),
+    );
+    Ok(chat(BRIDGE_SYSTEM, &user, None, 220)?.trim().to_string())
+}
+
+/// Truncate to at most `max` bytes on a char boundary.
+fn truncate(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 /// Parse the model's JSON reply into an [`Enrichment`]. Split out so it can be
