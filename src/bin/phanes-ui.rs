@@ -17,7 +17,7 @@ use std::path::{Component, Path, PathBuf};
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use phanes::graph::{self, EdgeKind, RelGraph};
-use phanes::indexer::{self, IndexOptions};
+use phanes::indexer::{self, IndexOptions, IndexReport};
 use phanes::model::{Idea, Provenance, Status};
 use phanes::query::{self, ListItem, SearchFilter};
 use phanes::scaffold;
@@ -145,6 +145,8 @@ struct PhanesApp {
     // model-proposed bridge (background thread + channel)
     bridge: BridgeState,
     bridge_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<String>>>,
+    // background "Scan + AI" worker (enrich + embed on its own DB connection)
+    ai_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<IndexReport>>>,
 }
 
 impl PhanesApp {
@@ -187,6 +189,56 @@ impl PhanesApp {
             show_gaps: false,
             bridge: BridgeState::None,
             bridge_rx: None,
+            ai_rx: None,
+        }
+    }
+
+    /// Start a background "Scan + AI" pass: a worker thread opens its own DB
+    /// connection and re-indexes with enrichment + embeddings, so the new/changed
+    /// notes gain their proposed and semantic layers without freezing the UI (the
+    /// model calls are slow). Needs the `enrich` build + a model server; without
+    /// them it's just a background re-index.
+    fn start_ai_scan(&mut self) {
+        if self.ai_rx.is_some() {
+            return; // already running
+        }
+        let db = self.root.join(".phanes").join("index.db");
+        let root = self.root.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.ai_rx = Some(rx);
+        self.status_msg = Some("scanning + enriching… (this can take a while)".into());
+        std::thread::spawn(move || {
+            let result = (|| {
+                let mut store = Store::open(&db)?;
+                let opts = IndexOptions { enrich: true, embed: true, force: false };
+                indexer::run(&mut store, &root, &opts)
+            })();
+            let _ = tx.send(result);
+        });
+    }
+
+    /// Poll the background AI-scan worker; refresh everything when it finishes.
+    fn poll_ai_scan(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.ai_rx else { return };
+        match rx.try_recv() {
+            Ok(result) => {
+                self.ai_rx = None;
+                match result {
+                    Ok(r) => {
+                        self.status_msg = Some(format!(
+                            "AI scan done · enriched {} · embedded {}",
+                            r.enriched, r.embedded
+                        ));
+                        self.reload_after_index();
+                    }
+                    Err(e) => self.status_msg = Some(format!("AI scan failed: {e}")),
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.ai_rx = None;
+                self.status_msg = Some("AI scan worker stopped unexpectedly".into());
+            }
         }
     }
 
@@ -657,19 +709,35 @@ impl eframe::App for PhanesApp {
             .default_size(260.0)
             .show_inside(ui, |ui| {
                 let mut rescan = false;
+                let mut ai_scan = false;
                 ui.horizontal(|ui| {
                     ui.heading("Ideas");
+                    let busy = self.ai_rx.is_some();
                     if ui
-                        .button("⟳ Scan")
-                        .on_hover_text("Re-index the folder — picks up new or edited notes")
+                        .add_enabled(!busy, egui::Button::new("⟳ Scan"))
+                        .on_hover_text("Re-index the folder — picks up new/edited notes (no model)")
                         .clicked()
                     {
                         rescan = true;
                     }
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("✨ Scan + AI"))
+                        .on_hover_text(
+                            "Re-index + run enrichment & embeddings on changed notes \
+                             (needs the enrich build + a model server)",
+                        )
+                        .clicked()
+                    {
+                        ai_scan = true;
+                    }
+                    if busy {
+                        ui.spinner();
+                        ui.weak("enriching…");
+                    }
                 });
                 if let Some(err) = &self.error {
                     ui.colored_label(egui::Color32::RED, format!("index error: {err}"));
-                    return (false, None, rescan);
+                    return (false, None, rescan, ai_scan);
                 }
 
                 let filter_changed = ui
@@ -698,11 +766,14 @@ impl eframe::App for PhanesApp {
                         }
                     }
                 });
-                (filter_changed, clicked, rescan)
+                (filter_changed, clicked, rescan, ai_scan)
             });
-        let (filter_changed, clicked, rescan) = left.inner;
+        let (filter_changed, clicked, rescan, ai_scan) = left.inner;
         if rescan {
             self.rescan();
+        }
+        if ai_scan {
+            self.start_ai_scan();
         }
         if filter_changed {
             self.run_filter();
@@ -909,7 +980,8 @@ impl eframe::App for PhanesApp {
             None => {}
         }
 
-        // Background bridge worker + its floating result window.
+        // Background workers: AI scan + bridge proposal.
+        self.poll_ai_scan(ui.ctx());
         self.poll_bridge(ui.ctx());
         self.bridge_window(ui.ctx());
     }

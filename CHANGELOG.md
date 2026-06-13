@@ -70,6 +70,11 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   it works when pointed at a never-indexed folder; shows an empty-state hint when
   a folder has no notes. A ⟳ Scan button in the explorer re-indexes in place
   (deterministic, no model), so new/edited/deleted notes appear without a restart.
+  A ✨ Scan + AI button runs a background worker (its own SQLite connection; WAL +
+  busy-timeout for safe concurrency) that re-indexes with enrichment + embeddings
+  on changed notes — so a new note's proposed tags/summary and semantic/graph
+  layers fill in without the CLI, while the UI stays responsive (spinner +
+  progress, then an auto-refresh). Still index-time/hash-gated (INV-1).
 - Set/change a note's status from the UI: the info panel's status field is a
   dropdown that writes the new asserted status into the file via
   `scaffold::set_status` (replaces the blockquote `> **Status:**` line or a

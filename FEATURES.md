@@ -103,7 +103,7 @@ to Concept (D-011). Generator lives in `scaffold.rs`, round-trips through `parse
 **Acceptance:**
 - An egui app with three panels: left file/ideas explorer, centre note
   reader/editor, right idea/provenance/relationship info.
-**Status:** Complete (Phase 4) — `phanes-ui` (eframe 0.34): explorer (folder tree + filter + ⟳ Scan to re-index in place), centre editor, and a right info panel (status dropdown to set/change the asserted status, provenance/tags/topics + clickable related)
+**Status:** Complete (Phase 4) — `phanes-ui` (eframe 0.34): explorer (folder tree + filter + ⟳ Scan / ✨ Scan + AI to re-index in place, the latter running enrich+embed on a background thread), centre editor, and a right info panel (status dropdown to set/change the asserted status, provenance/tags/topics + clickable related)
 **Notes:** Frontend over the same `query`/`indexer` API; invariants unchanged. Related: D-005.
 
 ### F-010 Edit-in-place with re-index on save

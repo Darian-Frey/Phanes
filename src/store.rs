@@ -22,6 +22,10 @@ impl Store {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(db_path)?;
+        // WAL (set in the schema) plus a busy timeout lets a second connection —
+        // e.g. the UI's background "Scan + AI" worker — read/write concurrently
+        // without immediate "database is locked" errors.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
         Ok(Self { conn })
     }
