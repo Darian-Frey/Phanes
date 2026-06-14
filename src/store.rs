@@ -175,6 +175,29 @@ impl Store {
         Ok(())
     }
 
+    /// Replace a note's *asserted* tags (leaving proposed ones intact). Used by
+    /// the UI tag editor: removing the old asserted set and re-inserting the new
+    /// one with `INSERT OR REPLACE` also promotes an accepted proposed tag (same
+    /// `(idea_id, tag)` key) to asserted. Keeps the DB in sync with the file's
+    /// frontmatter without a full re-index (which would wipe proposed tags).
+    pub fn set_asserted_tags(&mut self, idea_id: &str, tags: &[String]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "DELETE FROM tags WHERE idea_id = ?1 AND source = 'asserted'",
+            params![idea_id],
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR REPLACE INTO tags (idea_id, tag, source) VALUES (?1, ?2, 'asserted')",
+            )?;
+            for tag in tags {
+                stmt.execute(params![idea_id, tag])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Drop a note's embedding (the indexer calls this when content changed, so
     /// the now-stale vector is replaced on the next embed pass).
     pub fn clear_embedding(&self, idea_id: &str) -> Result<()> {
@@ -340,6 +363,41 @@ mod tests {
         assert_eq!(count(&store, "SELECT count(*) FROM tags"), 0);
         assert_eq!(count(&store, "SELECT count(*) FROM links"), 0);
         assert_eq!(count(&store, "SELECT count(*) FROM ideas_fts"), 0);
+    }
+
+    #[test]
+    fn set_asserted_tags_replaces_asserted_and_promotes_proposed() {
+        let mut store = mem_store();
+        let mut idea = sample_idea(); // asserted: ui, spatial; proposed: graph
+        idea.tags = vec![
+            Sourced::asserted("ui".into()),
+            Sourced::asserted("spatial".into()),
+            Sourced::proposed("graph".into()),
+        ];
+        store.upsert(&idea).unwrap();
+
+        // Accept "graph" (now asserted) and keep "ui"; drop "spatial".
+        store
+            .set_asserted_tags("spatial-canvas", &["ui".into(), "graph".into()])
+            .unwrap();
+
+        let got = crate::query::get(&store, "spatial-canvas").unwrap().unwrap();
+        let asserted: Vec<&str> = got
+            .tags
+            .iter()
+            .filter(|t| t.source == crate::model::Provenance::Asserted)
+            .map(|t| t.value.as_str())
+            .collect();
+        let proposed: Vec<&str> = got
+            .tags
+            .iter()
+            .filter(|t| t.source == crate::model::Provenance::Proposed)
+            .map(|t| t.value.as_str())
+            .collect();
+        assert!(asserted.contains(&"ui") && asserted.contains(&"graph"));
+        assert!(!asserted.contains(&"spatial"));
+        // "graph" was promoted, so it's no longer a duplicate proposed row
+        assert!(proposed.is_empty());
     }
 
     #[test]

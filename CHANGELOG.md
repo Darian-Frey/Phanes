@@ -7,6 +7,15 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-014 Editable / acceptable tags (propose → accept). The info panel's tags
+  section is now editable: `×` removes an asserted tag, `✓` accepts a proposed
+  (`~`) tag (promotes it to asserted), and an "add tag" field appends one.
+  Asserted tags are written to the file's frontmatter `tags:` key via
+  `scaffold::set_tags` (updates/inserts the key, or prepends a frontmatter block
+  for a header-only note), applied to the live buffer so open edits persist. The
+  DB is updated in place via `store::set_asserted_tags` (no full re-index), so the
+  note's other proposed tags survive (INV-2). The tag sibling of "Propose →
+  accept links"; uses the provenance core directly (F-004).
 - Model-proposed bridges (F-013 follow-up): `enrich::propose_bridge` and a
   `phanes bridge <a> <b>` command ask the local model for one idea connecting two
   notes. The first query-time model use — an explicit, opt-in generative action

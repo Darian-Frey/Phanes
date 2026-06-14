@@ -156,6 +156,25 @@ UI (`--features ui,enrich`).
 **Notes:** The graph is rebuilt from the index, never stored (INV-3); semantic
 edges use the stored vectors (INV-1). Related: D-013, D-014.
 
+### F-014 Editable / acceptable tags (propose → accept)
+**Priority:** Should
+**Acceptance:**
+- The info panel's tags section is editable: each asserted tag has a `×` to
+  remove it, each proposed (`~`) tag has a `✓` to **accept** it (promote to
+  asserted), and an "add tag" field appends a new asserted tag.
+- Asserted tags are the file's frontmatter `tags:` list. An edit writes the new
+  set there via `scaffold::set_tags` (updates an existing key, inserts into
+  existing frontmatter, or prepends a frontmatter block for a header-only note),
+  applied to the live buffer so open edits persist.
+- The DB stays in sync via `store::set_asserted_tags` (replace asserted rows;
+  `INSERT OR REPLACE` promotes an accepted proposed tag in place) — no full
+  re-index, so the note's other proposed tags survive (INV-2).
+**Status:** Complete (post-roadmap). The tag sibling of "Propose → accept links";
+the link version remains a candidate.
+**Notes:** Accept = write the proposed value to the file, making it asserted on
+the model's next pass too (`merge_proposed` skips already-asserted tags). Related:
+F-004, F-008, INV-2.
+
 ## Candidate features (uncommitted)
 
 Ideas not committed to. Most come from a 2026-06-11 survey of local-LLM note
@@ -173,7 +192,7 @@ chat) does not and is flagged.
 - **Propose → accept links.** Suggested links (from the model or embeddings) show
   as *proposed*; one action promotes a link to *asserted* and writes it to the
   file. Uses the provenance core directly (INV-2) — the Phanes-specific angle no
-  surveyed tool has.
+  surveyed tool has. The **tag** form of this shipped as F-014; links remain.
 - **Auto-summary / TL;DR** surfaced atop the centre pane and in the info panel
   (part of F-008).
 - **Near-duplicate / merge detection** over the embedding vectors (deterministic;

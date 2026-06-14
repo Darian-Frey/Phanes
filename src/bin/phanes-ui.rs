@@ -147,6 +147,16 @@ struct PhanesApp {
     bridge_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<String>>>,
     // background "Scan + AI" worker (enrich + embed on its own DB connection)
     ai_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<IndexReport>>>,
+    tag_input: String, // the "add tag" field in the info panel
+}
+
+/// A note's asserted tag values (the editable, file-backed set).
+fn asserted_tags(idea: &Idea) -> Vec<String> {
+    idea.tags
+        .iter()
+        .filter(|t| t.source == Provenance::Asserted)
+        .map(|t| t.value.clone())
+        .collect()
 }
 
 impl PhanesApp {
@@ -190,6 +200,7 @@ impl PhanesApp {
             bridge: BridgeState::None,
             bridge_rx: None,
             ai_rx: None,
+            tag_input: String::new(),
         }
     }
 
@@ -687,6 +698,28 @@ impl PhanesApp {
         }
     }
 
+    /// Replace the selected note's asserted tags (add / remove / accept-proposed
+    /// from the info panel). Writes the new set into the file's frontmatter via
+    /// `scaffold::set_tags` (applied to the live buffer so open edits persist),
+    /// then updates just the DB tag rows via `store::set_asserted_tags` — which
+    /// also promotes an accepted proposed tag in place. No full re-index, so the
+    /// note's other proposed tags (model output, file-absent) survive (INV-2).
+    fn apply_tags(&mut self, new_asserted: Vec<String>) {
+        let Some(idea) = &self.selected_idea else { return };
+        let id = idea.id.clone();
+        let path = idea.path.clone();
+        let updated = scaffold::set_tags(&self.buffer, &new_asserted);
+        if std::fs::write(&path, &updated).is_ok() {
+            self.buffer = updated.clone();
+            self.saved = updated;
+            self.status_msg = Some("tags updated".to_string());
+            if let Some(store) = &mut self.store {
+                let _ = store.set_asserted_tags(&id, &new_asserted);
+            }
+            self.reload_after_index();
+        }
+    }
+
     /// Re-index the folder in place (deterministic, no model) and refresh the
     /// explorer, graph, and current view — so new or edited notes appear without
     /// restarting. The semantic/proposed layers still need a CLI `--embed` /
@@ -791,6 +824,7 @@ impl eframe::App for PhanesApp {
                 ui.separator();
                 let mut clicked = None;
                 let mut new_status = None;
+                let mut new_tags: Option<Vec<String>> = None;
                 match &self.selected_idea {
                     None => {
                         ui.weak("(select a note)");
@@ -829,22 +863,63 @@ impl eframe::App for PhanesApp {
                             ui.label(&summary.value);
                         }
 
-                        if !idea.tags.is_empty() {
-                            ui.add_space(6.0);
-                            ui.strong("tags");
-                            ui.horizontal_wrapped(|ui| {
-                                for t in &idea.tags {
-                                    match t.source {
-                                        Provenance::Asserted => {
-                                            ui.label(&t.value);
+                        ui.add_space(6.0);
+                        ui.strong("tags");
+                        let current_asserted = asserted_tags(idea);
+                        ui.horizontal_wrapped(|ui| {
+                            for t in &idea.tags {
+                                match t.source {
+                                    Provenance::Asserted => {
+                                        ui.label(&t.value);
+                                        if ui
+                                            .small_button("×")
+                                            .on_hover_text("remove tag")
+                                            .clicked()
+                                        {
+                                            new_tags = Some(
+                                                current_asserted
+                                                    .iter()
+                                                    .filter(|v| *v != &t.value)
+                                                    .cloned()
+                                                    .collect(),
+                                            );
                                         }
-                                        Provenance::Proposed => {
-                                            ui.colored_label(PROPOSED, format!("~{}", t.value));
+                                    }
+                                    Provenance::Proposed => {
+                                        ui.colored_label(PROPOSED, format!("~{}", t.value));
+                                        if ui
+                                            .small_button("✓")
+                                            .on_hover_text("accept (make asserted)")
+                                            .clicked()
+                                        {
+                                            let mut v = current_asserted.clone();
+                                            v.push(t.value.clone());
+                                            new_tags = Some(v);
                                         }
                                     }
                                 }
-                            });
-                        }
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            let resp = ui.add(
+                                egui::TextEdit::singleline(&mut self.tag_input)
+                                    .hint_text("add tag")
+                                    .desired_width(110.0),
+                            );
+                            let submit = resp.lost_focus()
+                                && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            if (ui.small_button("+").clicked() || submit)
+                                && !self.tag_input.trim().is_empty()
+                            {
+                                let mut v = current_asserted.clone();
+                                let tag = self.tag_input.trim().to_string();
+                                if !v.contains(&tag) {
+                                    v.push(tag);
+                                }
+                                new_tags = Some(v);
+                                self.tag_input.clear();
+                            }
+                        });
                         if !idea.topics.is_empty() {
                             ui.add_space(6.0);
                             ui.strong("topics");
@@ -891,11 +966,14 @@ impl eframe::App for PhanesApp {
                         }
                     }
                 }
-                (clicked, new_status)
+                (clicked, new_status, new_tags)
             });
-        let (clicked, new_status) = right.inner;
+        let (clicked, new_status, new_tags) = right.inner;
         if let Some(s) = new_status {
             self.set_selected_status(s);
+        }
+        if let Some(tags) = new_tags {
+            self.apply_tags(tags);
         }
         if let Some(id) = clicked {
             self.select(id);

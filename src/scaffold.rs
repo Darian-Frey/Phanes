@@ -83,6 +83,47 @@ pub fn set_status(raw: &str, status: Status) -> String {
     format!("> **Status:** {label}\n\n{raw}")
 }
 
+/// Set the asserted tags in a note's raw text (the YAML frontmatter `tags:`
+/// key — the channel the parser reads asserted tags from), returning the new
+/// content. Updates an existing `tags:` key, inserts one into existing
+/// frontmatter, or prepends a frontmatter block if the note has none. An empty
+/// list drops the key. Round-trips through `parser::parse`. Used by the UI's
+/// tag editor (add / remove / accept).
+pub fn set_tags(raw: &str, tags: &[String]) -> String {
+    let trailing_newline = raw.ends_with('\n');
+    let key_line = format!(
+        "tags: [{}]",
+        tags.iter().map(|t| format!("\"{t}\"")).collect::<Vec<_>>().join(", ")
+    );
+    let mut lines: Vec<String> = raw.lines().map(str::to_string).collect();
+
+    // Existing leading YAML frontmatter?
+    if lines.first().map(|l| l.trim()) == Some("---") {
+        if let Some(rel_end) = lines.iter().skip(1).position(|l| l.trim() == "---") {
+            let end = rel_end + 1; // index of the closing `---`
+            let tags_idx = lines[1..end]
+                .iter()
+                .position(|l| l.trim_start().to_ascii_lowercase().starts_with("tags:"))
+                .map(|i| i + 1);
+            match (tags_idx, tags.is_empty()) {
+                (Some(i), true) => {
+                    lines.remove(i);
+                }
+                (Some(i), false) => lines[i] = key_line,
+                (None, true) => {} // nothing to remove
+                (None, false) => lines.insert(1, key_line),
+            }
+            return join_lines(&lines, trailing_newline);
+        }
+    }
+
+    // No frontmatter: prepend a block (unless there are no tags to write).
+    if tags.is_empty() {
+        return raw.to_string();
+    }
+    format!("---\n{key_line}\n---\n\n{raw}")
+}
+
 /// True for a blockquote line whose field is `Status:` (anchored, so a prose line
 /// like `> **Why this status**:` doesn't match).
 fn is_blockquote_status(line: &str) -> bool {
@@ -181,5 +222,30 @@ mod tests {
         let raw = "---\ntags: [\"x\"]\n---\n\n# T\n";
         let out = set_status(raw, Status::Active);
         assert_eq!(parser::parse("t", &out).status, Some(Status::Active));
+    }
+
+    #[test]
+    fn set_tags_prepends_frontmatter_to_blockquote_note() {
+        let raw = "> **Status:** Concept\n\n# T\n";
+        let out = set_tags(raw, &["ui".into(), "spatial".into()]);
+        let doc = parser::parse("t", &out);
+        assert_eq!(doc.tags, vec!["ui", "spatial"]);
+        assert_eq!(doc.status, Some(Status::Concept)); // header preserved
+    }
+
+    #[test]
+    fn set_tags_updates_existing_frontmatter_key() {
+        let raw = "---\nstatus: active\ntags: [\"old\"]\n---\n\n# T\n";
+        let out = set_tags(raw, &["new".into()]);
+        let doc = parser::parse("t", &out);
+        assert_eq!(doc.tags, vec!["new"]);
+        assert_eq!(doc.status, Some(Status::Active)); // other keys preserved
+    }
+
+    #[test]
+    fn set_tags_empty_drops_the_key() {
+        let raw = "---\ntags: [\"a\"]\n---\n\n# T\n";
+        let out = set_tags(raw, &[]);
+        assert!(parser::parse("t", &out).tags.is_empty());
     }
 }
