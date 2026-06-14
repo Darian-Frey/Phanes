@@ -1,7 +1,7 @@
 > **Status:** Active
 > **Provenance:** Shane Hartley (owner/architect), Claude (drafting)
-> **Last reviewed:** 2026-06-11
-> **Why this status:** Phases 1–2 and the Phase 4 three-panel UI shipped; P3 enrichment pending. Candidate features captured from a 2026-06-11 survey of local-LLM note tools.
+> **Last reviewed:** 2026-06-14
+> **Why this status:** Phases 1–2, the Phase 4 UI, and the P3 AI layer (enrichment, embeddings, near, graph/gaps, bridges, ask) shipped through F-015. Candidates F-016–F-024 logged 2026-06-14 from a peer-tool gap analysis.
 
 # Features
 
@@ -199,10 +199,129 @@ for retrieval); only generation runs on demand. Related: F-008, F-012, D-016.
 ## Candidate features (uncommitted)
 
 Ideas not committed to. Most come from a 2026-06-11 survey of local-LLM note
-tools (Reor, Khoj, Smart Connections, InfraNodus, LM Studio). Each graduates to
-an `F-NNN` entry if/when committed. Grouped by how they sit with the invariants:
-most fit **INV-1** (model at index time; queries instant and offline), one (RAG
-chat) does not and is flagged.
+tools (Reor, Khoj, Smart Connections, InfraNodus, LM Studio). Grouped by how they
+sit with the invariants: most fit **INV-1** (model at index time; queries instant
+and offline); generative ones are flagged under the D-015/D-016 carve-out.
+
+The entries below (**F-016–F-024**) carry reserved, append-only IDs with
+`Status: Candidate` until committed — logged 2026-06-14 from a gap analysis
+against peer tools (Obsidian, Reor, InfraNodus, Mem, Atlas, DEVONthink). The
+looser idea bullets further down stay unnumbered until they firm up.
+
+### F-016 Backlinks — linked and unlinked mentions
+**Priority:** Should
+**Acceptance:**
+- A panel/command shows **incoming** links (notes whose links resolve to the
+  current note), distinct from `related`'s outgoing links + shared-tag neighbours.
+- **Unlinked mentions:** notes that contain the current note's title (or an alias)
+  in prose but don't link it, surfaced as *proposed* links the user can accept —
+  which writes a real link into the file (INV-2).
+- Both deterministic: incoming links are a `links` JOIN on `dst_id`; unlinked
+  mentions are an FTS title scan. No model, instant (INV-3).
+**Status:** Candidate
+**Notes:** Obsidian's headline feature (Backlinks core plugin = Linked + Unlinked
+mentions). The unlinked→accept path is the link form of F-014's propose→accept and
+the "Propose → accept links" bullet below. The biggest single gap vs peer tools.
+
+### F-017 Quick switcher / command palette
+**Priority:** Should
+**Acceptance:**
+- A keyboard-driven fuzzy switcher (e.g. `Ctrl+P`) jumps to any note by title or id
+  from anywhere in the UI.
+- Optionally a command palette for actions (Scan, toggle mode, new note, Ask).
+**Status:** Candidate
+**Notes:** Obsidian Quick Switcher. Deterministic; reuses `query::list`/`resolve`.
+The cheapest large daily-driver UX win.
+
+### F-018 Tag browser
+**Priority:** Could
+**Acceptance:**
+- A pane listing the full tag vocabulary with per-tag note counts; click a tag to
+  filter the explorer.
+- Distinguishes asserted from proposed tag usage.
+**Status:** Candidate
+**Notes:** Obsidian tag pane. Deterministic. Complements the taxonomy-aware
+proposed-tags idea — you can't keep tags consistent without seeing the vocabulary.
+
+### F-019 Live file-watching auto-reindex
+**Priority:** Could
+**Acceptance:**
+- The UI watches the root for file create/modify/delete and re-indexes
+  incrementally (deterministic, hash-gated), removing the need to press ⟳ Scan.
+- Debounced; never runs the model automatically (INV-1).
+**Status:** Candidate
+**Notes:** e.g. the `notify` crate. Matches the "always current" expectation that
+Obsidian and peers meet by default.
+
+### F-020 Graph analytics — hubs and clusters
+**Priority:** Could
+**Acceptance:**
+- Compute and surface centrality (degree / betweenness) to highlight **hub** and
+  **bridge** notes in the graph.
+- Community detection (e.g. modularity / Louvain) to label **topical clusters**;
+  tint or group nodes by cluster.
+**Status:** Candidate
+**Notes:** InfraNodus's signature (betweenness + modularity clusters + structural
+gaps). Deterministic extension of F-013; folds in the former "cluster + orphan
+overview" idea.
+
+### F-021 Hybrid search (keyword + semantic)
+**Priority:** Could
+**Acceptance:**
+- `search` optionally blends FTS rank with embedding similarity (reciprocal-rank
+  fusion or a weighted mix), improving recall over either alone.
+- Retrieval-time only; the vectors are index-time, so no model runs on the path
+  (INV-1 holds).
+**Status:** Candidate
+**Notes:** Reor-style semantic search alongside FTS. Builds on F-002 + F-012.
+
+### F-022 Timeline view
+**Priority:** Could
+**Acceptance:**
+- A chronological view of notes by created / last-reviewed / modified date; pairs
+  with `stale` to show momentum and rot over time.
+**Status:** Candidate
+**Notes:** Deterministic. A common view in mature note tools; cheap over existing
+date metadata.
+
+### F-023 Auto-classify / "see also" (index-time, proposed)
+**Priority:** Could
+**Acceptance:**
+- At index time the model proposes a category/grouping (and optionally a target
+  folder) per note, stored as *proposed* (INV-2) and surfaced in `show` / the info
+  panel.
+**Status:** Candidate
+**Notes:** DEVONthink "See Also & Classify"; Mem self-organising. Index-time and
+proposed — a sibling of proposed tags (F-008).
+
+### F-024 Generated open questions per cluster (opt-in, generative)
+**Priority:** Could
+**Acceptance:**
+- A user-invoked action asks the model "what's unexplored / what questions does
+  this region raise?" for a selected cluster or the whole corpus, presented as
+  prompts (not written to files).
+- An explicit generative action under the D-015/D-016 carve-out; graceful on
+  failure (INV-4).
+**Status:** Candidate
+**Notes:** Extends bridges (F-013) from "connect two notes" to "what's missing in a
+region." InfraNodus frames structural gaps as "potential for new ideas."
+
+### F-025 Left panel: Files view alongside Ideas view
+**Priority:** Should
+**Acceptance:**
+- A toggle in the left explorer switches between **Ideas** (the current
+  indexed-note tree — status-tinted, built from `query::list`) and **Files** (a
+  full recursive filesystem tree of the root, like an IDE explorer, showing every
+  file and subfolder including non-`.md` files and attachments).
+- Folders expand/collapse; clicking a `.md` file selects it (path → id) and drives
+  the centre/right panels as today; non-`.md` files are shown (optionally
+  open-externally), so attachments and not-yet-indexed files are visible.
+- Deterministic: a `walkdir` of the root; the tree needs no model and no DB.
+**Status:** Candidate
+**Notes:** Mirrors the VS Code / Antigravity file explorer. Ideas view stays the
+default (semantic, status-aware); Files view is for seeing the raw folder. Pairs
+with F-019 (live file-watching) and reuses the existing tree renderer with a
+filesystem source instead of `query::list`.
 
 ### Fits the index-time / proposed model (queries stay instant + offline)
 
@@ -213,7 +332,8 @@ chat) does not and is flagged.
 - **Propose → accept links.** Suggested links (from the model or embeddings) show
   as *proposed*; one action promotes a link to *asserted* and writes it to the
   file. Uses the provenance core directly (INV-2) — the Phanes-specific angle no
-  surveyed tool has. The **tag** form of this shipped as F-014; links remain.
+  surveyed tool has. The **tag** form of this shipped as F-014; the unlinked-
+  mentions source for link suggestions is now **F-016**.
 - **Auto-summary / TL;DR** surfaced atop the centre pane and in the info panel
   (part of F-008).
 - **Near-duplicate / merge detection** over the embedding vectors (deterministic;
@@ -228,7 +348,7 @@ chat) does not and is flagged.
 - **Stale triage with a proposed next step** — each rotting note (from `stale`)
   gets a proposed revival prompt / next action.
 - **Cluster + orphan overview** — surface dense clusters and unconnected notes
-  (deterministic graph metrics).
+  (deterministic graph metrics). → folded into **F-020** (graph analytics).
 
 ### Powerful but breaks INV-1 — only as a bounded, opt-in mode
 
@@ -239,3 +359,6 @@ chat) does not and is flagged.
 ### Smaller
 
 - Per-idea `open` in `$EDITOR`.
+- **AI flashcards** (Reor has these) — generate spaced-repetition cards from a
+  note. Index-time, proposed. Noted for completeness but a weak fit: Phanes is a
+  project-idea tool, not a study/recall tool.
