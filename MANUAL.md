@@ -272,8 +272,16 @@ works even when pointed at a never-indexed folder.
 
 ### Left — explorer
 
-A folder tree of your notes, status-tinted, with a filter box (backed by search)
-and click-to-select. Two buttons:
+An **Ideas / Files** toggle tops the panel:
+
+- **Ideas** (default) — the indexed notes as a status-tinted folder tree, with a
+  filter box (backed by search) and click-to-select.
+- **Files** — the raw folder tree, like an IDE file explorer: every subfolder and
+  file under the root (dotfiles, `.phanes/`, and `.git/` are hidden). Click a
+  `.md` to open it — an indexed note shows full info; a not-yet-indexed file opens
+  as a raw view with a "Scan to add" hint. Other files open raw and inert.
+
+Two buttons sit below the toggle:
 
 - **⟳ Scan** — re-index in place (deterministic, no model). Use it after you add,
   edit, or delete notes outside the app — they appear without a restart.

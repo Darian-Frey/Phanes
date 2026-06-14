@@ -19,9 +19,11 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use phanes::graph::{self, EdgeKind, RelGraph};
 use phanes::indexer::{self, IndexOptions, IndexReport};
 use phanes::model::{Idea, Provenance, Status};
+use phanes::parser;
 use phanes::query::{self, ListItem, SearchFilter};
 use phanes::scaffold;
 use phanes::store::Store;
+use walkdir::WalkDir;
 
 /// The statuses offered by the info-panel dropdown (every real status; `Unknown`
 /// is the "no status" sentinel and isn't something you set).
@@ -93,6 +95,15 @@ struct AnswerData {
     sources: Vec<(String, String)>,
 }
 
+/// Which tree the left panel shows: the indexed-notes view (semantic, status-
+/// tinted) or the raw filesystem view (everything under the root, like an IDE
+/// explorer). F-025.
+#[derive(PartialEq, Clone, Copy)]
+enum ExplorerMode {
+    Ideas,
+    Files,
+}
+
 /// A folder in the explorer: subdirectories plus the notes directly in it.
 #[derive(Default)]
 struct Tree {
@@ -104,6 +115,77 @@ struct FileEntry {
     id: String,
     title: String,
     status: Status,
+}
+
+/// A folder in the raw **Files** view: subdirectories plus the files in it.
+#[derive(Default)]
+struct FileTree {
+    dirs: BTreeMap<String, FileTree>,
+    files: Vec<FsEntry>,
+}
+
+/// One file in the Files view. `id` is `Some` for `.md` files (the index id
+/// computed from the path, so a click can open the note); `None` otherwise.
+struct FsEntry {
+    name: String,
+    path: PathBuf,
+    id: Option<String>,
+}
+
+/// Build the raw filesystem tree under `root`: every file and subfolder, like an
+/// IDE explorer. Hidden entries (dotfiles, `.phanes/`, `.git/`) are skipped so
+/// the index DB and VCS internals stay out of view. Deterministic — no DB, no
+/// model.
+fn build_file_tree(root: &Path) -> FileTree {
+    let mut tree = FileTree::default();
+    let normal = |rel: &Path| -> Vec<String> {
+        rel.components()
+            .filter_map(|c| match c {
+                Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect()
+    };
+
+    for entry in WalkDir::new(root)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|e| {
+            // Skip hidden entries (and thus their subtrees): .phanes, .git, etc.
+            e.depth() == 0
+                || e.file_name().to_str().is_none_or(|n| !n.starts_with('.'))
+        })
+        .filter_map(Result::ok)
+    {
+        let path = entry.path();
+        if path == root {
+            continue;
+        }
+        let rel = path.strip_prefix(root).unwrap_or(path);
+        let comps = normal(rel);
+        if comps.is_empty() {
+            continue;
+        }
+
+        // Descend to the parent node, creating directory nodes as needed (so
+        // empty folders still appear).
+        let mut node = &mut tree;
+        for dir in &comps[..comps.len() - 1] {
+            node = node.dirs.entry(dir.clone()).or_default();
+        }
+        let leaf = comps.last().unwrap().clone();
+        if entry.file_type().is_dir() {
+            node.dirs.entry(leaf).or_default();
+        } else {
+            let is_md = path.extension().is_some_and(|x| x == "md");
+            node.files.push(FsEntry {
+                name: leaf,
+                path: path.to_path_buf(),
+                id: is_md.then(|| parser::id_from_path(rel)),
+            });
+        }
+    }
+    tree
 }
 
 /// Build a folder tree from indexed notes, grouping by each note's path
@@ -171,6 +253,9 @@ struct PhanesApp {
     ask_input: String,
     ask: AskState,
     ask_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<AnswerData>>>,
+    // left-panel view: indexed Ideas vs raw Files (F-025)
+    explorer_mode: ExplorerMode,
+    file_tree: Option<FileTree>, // raw filesystem tree, built lazily / invalidated on reindex
 }
 
 /// A note's asserted tag values (the editable, file-backed set).
@@ -227,6 +312,8 @@ impl PhanesApp {
             ask_input: String::new(),
             ask: AskState::Idle,
             ask_rx: None,
+            explorer_mode: ExplorerMode::Ideas,
+            file_tree: None,
         }
     }
 
@@ -777,6 +864,30 @@ impl PhanesApp {
         self.status_msg = None;
     }
 
+    /// Open a file picked from the **Files** view. If it's an indexed note, this is
+    /// just `select`; otherwise (a not-yet-indexed `.md`, or any other file) the
+    /// raw content is loaded for viewing, with no DB-backed info — a hint suggests
+    /// a Scan to index it.
+    fn open_file(&mut self, path: PathBuf, id: Option<String>) {
+        let indexed = id.as_deref().and_then(|i| {
+            self.store.as_ref().and_then(|s| query::get(s, i).ok().flatten())
+        });
+        if let (Some(id), Some(_)) = (id, indexed) {
+            self.select(id);
+            return;
+        }
+        self.buffer = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| format!("<could not read {}: {e}>", path.display()));
+        self.saved = self.buffer.clone();
+        self.selected_idea = None;
+        self.related.clear();
+        self.near.clear();
+        self.selected = None;
+        self.mode = Mode::View;
+        let name = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        self.status_msg = Some(format!("{name} — not indexed (Scan to add it)"));
+    }
+
     /// Write the buffer to disk and run a one-file index pass. This is the only
     /// place an edit re-enters the index; enrichment stays off (INV-1).
     fn save(&mut self) {
@@ -817,6 +928,7 @@ impl PhanesApp {
         self.related = related;
         self.near = near;
         self.graph = None; // rebuilt next time the Graph tab is opened
+        self.file_tree = None; // rebuilt next time the Files view is shown
     }
 
     /// Write a new asserted status into the selected note's file (deterministic,
@@ -886,8 +998,26 @@ impl eframe::App for PhanesApp {
             .show_inside(ui, |ui| {
                 let mut rescan = false;
                 let mut ai_scan = false;
+                let mut file_click: Option<(PathBuf, Option<String>)> = None;
+
+                // View toggle: indexed Ideas vs the raw Files tree (F-025).
                 ui.horizontal(|ui| {
-                    ui.heading("Ideas");
+                    if ui
+                        .selectable_label(self.explorer_mode == ExplorerMode::Ideas, "Ideas")
+                        .on_hover_text("Indexed notes — status-tinted, semantic")
+                        .clicked()
+                    {
+                        self.explorer_mode = ExplorerMode::Ideas;
+                    }
+                    if ui
+                        .selectable_label(self.explorer_mode == ExplorerMode::Files, "Files")
+                        .on_hover_text("Raw folder tree — every file under the root")
+                        .clicked()
+                    {
+                        self.explorer_mode = ExplorerMode::Files;
+                    }
+                });
+                ui.horizontal(|ui| {
                     let busy = self.ai_rx.is_some();
                     if ui
                         .add_enabled(!busy, egui::Button::new("⟳ Scan"))
@@ -913,38 +1043,57 @@ impl eframe::App for PhanesApp {
                 });
                 if let Some(err) = &self.error {
                     ui.colored_label(egui::Color32::RED, format!("index error: {err}"));
-                    return (false, None, rescan, ai_scan);
+                    return (false, None, rescan, ai_scan, file_click);
                 }
 
-                let filter_changed = ui
-                    .add(egui::TextEdit::singleline(&mut self.filter).hint_text("filter…"))
-                    .changed();
+                // Build the filesystem tree lazily when the Files view is shown.
+                if self.explorer_mode == ExplorerMode::Files && self.file_tree.is_none() {
+                    self.file_tree = Some(build_file_tree(&self.root));
+                }
+
+                // The filter box drives the Ideas view only.
+                let mut filter_changed = false;
+                if self.explorer_mode == ExplorerMode::Ideas {
+                    filter_changed = ui
+                        .add(egui::TextEdit::singleline(&mut self.filter).hint_text("filter…"))
+                        .changed();
+                }
                 ui.separator();
 
                 let mut clicked = None;
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    if self.filter.trim().is_empty() {
-                        if self.tree.dirs.is_empty() && self.tree.files.is_empty() {
-                            ui.weak(format!("no notes in {}", self.root.display()));
-                        } else {
-                            render_tree(ui, &self.tree, &self.selected, &mut clicked);
+                egui::ScrollArea::vertical().show(ui, |ui| match self.explorer_mode {
+                    ExplorerMode::Files => match &self.file_tree {
+                        Some(tree) if !tree.dirs.is_empty() || !tree.files.is_empty() => {
+                            render_file_tree(ui, tree, &self.selected, &mut file_click);
                         }
-                    } else if self.results.is_empty() {
-                        ui.weak("no matches");
-                    } else {
-                        for hit in &self.results {
-                            let selected = self.selected.as_deref() == Some(hit.id.as_str());
-                            let text =
-                                egui::RichText::new(&hit.title).color(status_color(hit.status));
-                            if ui.selectable_label(selected, text).clicked() {
-                                clicked = Some(hit.id.clone());
+                        _ => {
+                            ui.weak(format!("{} is empty", self.root.display()));
+                        }
+                    },
+                    ExplorerMode::Ideas => {
+                        if self.filter.trim().is_empty() {
+                            if self.tree.dirs.is_empty() && self.tree.files.is_empty() {
+                                ui.weak(format!("no notes in {}", self.root.display()));
+                            } else {
+                                render_tree(ui, &self.tree, &self.selected, &mut clicked);
+                            }
+                        } else if self.results.is_empty() {
+                            ui.weak("no matches");
+                        } else {
+                            for hit in &self.results {
+                                let selected = self.selected.as_deref() == Some(hit.id.as_str());
+                                let text = egui::RichText::new(&hit.title)
+                                    .color(status_color(hit.status));
+                                if ui.selectable_label(selected, text).clicked() {
+                                    clicked = Some(hit.id.clone());
+                                }
                             }
                         }
                     }
                 });
-                (filter_changed, clicked, rescan, ai_scan)
+                (filter_changed, clicked, rescan, ai_scan, file_click)
             });
-        let (filter_changed, clicked, rescan, ai_scan) = left.inner;
+        let (filter_changed, clicked, rescan, ai_scan, file_click) = left.inner;
         if rescan {
             self.rescan();
         }
@@ -956,6 +1105,9 @@ impl eframe::App for PhanesApp {
         }
         if let Some(id) = clicked {
             self.select(id);
+        }
+        if let Some((path, id)) = file_click {
+            self.open_file(path, id);
         }
 
         // --- right: info (the GUI counterpart of `show`) ---
@@ -1289,6 +1441,38 @@ fn render_tree(ui: &mut egui::Ui, tree: &Tree, selected: &Option<String>, clicke
         let text = egui::RichText::new(&f.title).color(status_color(f.status));
         if ui.selectable_label(is_selected, text).clicked() {
             *clicked = Some(f.id.clone());
+        }
+    }
+}
+
+/// Render the raw **Files** tree (F-025). `.md` files are clickable (open the
+/// note); other files are shown dimmed and inert. Sets `click` to the picked
+/// file's `(path, id)`.
+fn render_file_tree(
+    ui: &mut egui::Ui,
+    tree: &FileTree,
+    selected: &Option<String>,
+    click: &mut Option<(PathBuf, Option<String>)>,
+) {
+    for (name, sub) in &tree.dirs {
+        egui::CollapsingHeader::new(format!("🗀 {name}"))
+            .default_open(false)
+            .show(ui, |ui| render_file_tree(ui, sub, selected, click));
+    }
+    for f in &tree.files {
+        match &f.id {
+            Some(id) => {
+                let is_selected = selected.as_deref() == Some(id.as_str());
+                if ui.selectable_label(is_selected, &f.name).clicked() {
+                    *click = Some((f.path.clone(), Some(id.clone())));
+                }
+            }
+            // Non-note files: visible but inert (a click still opens them raw).
+            None => {
+                if ui.add(egui::Label::new(egui::RichText::new(&f.name).weak()).sense(egui::Sense::click())).clicked() {
+                    *click = Some((f.path.clone(), None));
+                }
+            }
         }
     }
 }

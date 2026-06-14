@@ -93,6 +93,12 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   query-time generative action under the D-015 carve-out — boundary recorded in
   D-016; never wired into the instant query paths. UI call is threaded (own read
   DB connection). `enrich::chat` is `pub(crate)` for reuse. Live-verified.
+- **Done (F-025 Files view):** the left panel has an **Ideas/Files** toggle.
+  Ideas is the indexed-note tree (`build_tree` from `query::list`); Files is a raw
+  `walkdir` tree (`build_file_tree`, dotfiles/`.phanes`/`.git` hidden), rendered by
+  `render_file_tree`. Clicking a `.md` → `open_file` (indexed → `select`; else raw
+  view). Tree built lazily, invalidated in `reload_after_index`. Filter is
+  Ideas-only.
 - **Not yet built:** the remaining FEATURES.md candidates (taxonomy-aware tags,
   propose→accept *links*, open-in-$EDITOR, near-duplicate/merge detection,
   title suggestions, stale-triage next steps).

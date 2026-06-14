@@ -317,11 +317,16 @@ region." InfraNodus frames structural gaps as "potential for new ideas."
   the centre/right panels as today; non-`.md` files are shown (optionally
   open-externally), so attachments and not-yet-indexed files are visible.
 - Deterministic: a `walkdir` of the root; the tree needs no model and no DB.
-**Status:** Candidate
+**Status:** Complete (post-roadmap). An **Ideas/Files** toggle tops the left
+panel; Files shows the full `walkdir` tree (dotfiles/`.phanes`/`.git` hidden).
+Clicking a `.md` opens it (indexed → full info; not-yet-indexed → raw view with a
+"Scan to add" hint); other files open raw and inert. The filter box applies to
+Ideas only.
 **Notes:** Mirrors the VS Code / Antigravity file explorer. Ideas view stays the
 default (semantic, status-aware); Files view is for seeing the raw folder. Pairs
-with F-019 (live file-watching) and reuses the existing tree renderer with a
-filesystem source instead of `query::list`.
+with F-019 (live file-watching) and reuses the explorer's tree renderer with a
+filesystem source instead of `query::list`. The tree is built lazily and
+invalidated on every re-index.
 
 ### Fits the index-time / proposed model (queries stay instant + offline)
 

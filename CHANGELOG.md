@@ -7,6 +7,14 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-025 Files view in the left panel. An **Ideas/Files** toggle tops the explorer:
+  Ideas is the existing indexed-note tree; Files is a full `walkdir` tree of the
+  root (like an IDE explorer — every subfolder and file, with dotfiles/`.phanes`/
+  `.git` hidden). Clicking a `.md` opens it (indexed → full info; not-yet-indexed
+  → raw view with a "Scan to add" hint); other files open raw and inert. The
+  filter box applies to the Ideas view only. Deterministic (no model, no DB for
+  the tree); the tree is built lazily and invalidated on re-index. The Scan
+  buttons moved to their own row to make space for the toggle.
 - AppImage packaging for the desktop app. `packaging/build-appimage.sh` builds
   `phanes-ui` (`--features ui,enrich`) and bundles it into a single portable
   `dist/Phanes-<version>-x86_64.AppImage` via `linuxdeploy` + `appimagetool`,
