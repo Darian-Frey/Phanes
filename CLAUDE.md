@@ -93,6 +93,10 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   query-time generative action under the D-015 carve-out — boundary recorded in
   D-016; never wired into the instant query paths. UI call is threaded (own read
   DB connection). `enrich::chat` is `pub(crate)` for reuse. Live-verified.
+- **Done (F-026 in-app manual):** `MANUAL.md` embedded via `include_str!`
+  (`MANUAL` const), shown in the centre pane by `egui_commonmark` behind a `?`
+  button / F1 toggle (`show_manual`); read-only, not an indexed note. Ships in the
+  AppImage with no runtime file dependency.
 - **Done (F-018 tag browser):** `query::tag_index` (every tag → asserted/proposed
   counts + its notes, sorted by use). Left explorer has a **Tags** view (third
   toggle): collapsing header per tag (`tag · total (~proposed)`) → its notes.

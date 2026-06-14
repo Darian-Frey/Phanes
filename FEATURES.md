@@ -196,6 +196,18 @@ shipped as a bounded, opt-in mode per the boundary recorded in D-016.
 **Notes:** Retrieval is deterministic over the index-time embeddings (INV-1 holds
 for retrieval); only generation runs on demand. Related: F-008, F-012, D-016.
 
+### F-026 In-app manual viewer
+**Priority:** Should
+**Acceptance:**
+- A `?` button in the centre toolbar (and the F1 key) opens the user manual,
+  rendered in the centre pane via the markdown viewer; Close / F1 dismisses it.
+- The manual is read-only and never treated as an indexed note.
+**Status:** Complete (post-roadmap). `MANUAL.md` is embedded with `include_str!`,
+so it ships inside the binary / AppImage (no dependency on the repo file at
+runtime); rendered with `egui_commonmark`, kept separate from the View/Edit/Graph/
+Ask views.
+**Notes:** Reuses the existing markdown viewer (F-010). Related: MANUAL.md.
+
 ## Candidate features (uncommitted)
 
 Ideas not committed to. Most come from a 2026-06-11 survey of local-LLM note

@@ -284,6 +284,10 @@ works even when pointed at a never-indexed folder.
 to any note by title or id: type to filter, ↑/↓ to move, Enter to open, Esc to
 close. The chosen note opens and is revealed in the explorer.
 
+**This manual, in the app.** Click the **?** button in the centre toolbar (or
+press `F1`) to read this manual rendered right in the centre pane; Close or `F1`
+again dismisses it. It's read-only and never indexed as a note.
+
 ### Left — explorer
 
 An **Ideas / Files / Tags** toggle tops the panel:

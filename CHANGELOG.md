@@ -7,6 +7,11 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-026 In-app manual viewer. A `?` button in the centre toolbar (and the F1 key)
+  opens the user manual rendered in the centre pane via the existing markdown
+  viewer; Close / F1 dismisses it. `MANUAL.md` is embedded with `include_str!`, so
+  it ships inside the binary / AppImage and needs no file at runtime. Read-only —
+  never treated as an indexed note.
 - F-018 Tag browser. `query::tag_index` returns the whole tag vocabulary with
   per-tag asserted/proposed counts and the notes carrying each tag. The left
   explorer gains a **Tags** view (third toggle alongside Ideas/Files): tags listed

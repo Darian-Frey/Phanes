@@ -25,6 +25,11 @@ use phanes::scaffold;
 use phanes::store::Store;
 use walkdir::WalkDir;
 
+/// The user manual, compiled into the binary so it's available however the app is
+/// launched (incl. the AppImage, where the repo's MANUAL.md isn't on disk). Shown
+/// in the centre pane via the markdown viewer — read-only, never an indexed note.
+const MANUAL: &str = include_str!("../../MANUAL.md");
+
 /// The statuses offered by the info-panel dropdown (every real status; `Unknown`
 /// is the "no status" sentinel and isn't something you set).
 const STATUS_CHOICES: [Status; 7] = [
@@ -299,6 +304,7 @@ struct PhanesApp {
     explorer_mode: ExplorerMode,
     file_tree: Option<FileTree>, // raw filesystem tree, built lazily / invalidated on reindex
     tag_groups: Option<Vec<TagGroup>>, // tag browser, built lazily / invalidated on reindex (F-018)
+    show_manual: bool,           // render the embedded MANUAL.md in the centre pane
     reveal_selected: bool,       // one-shot: expand+scroll the explorer to the selection
     // quick switcher (Ctrl+P) — fuzzy jump to any note (F-017)
     switcher_open: bool,
@@ -380,6 +386,7 @@ impl PhanesApp {
             explorer_mode: ExplorerMode::Ideas,
             file_tree: None,
             tag_groups: None,
+            show_manual: false,
             reveal_selected: false,
             switcher_open: false,
             switcher_query: String::new(),
@@ -1659,6 +1666,28 @@ impl eframe::App for PhanesApp {
             let mut action: Option<GraphAction> = None;
             let mut ask_select: Option<String> = None;
 
+            // F1 toggles the manual.
+            if ui.input(|i| i.key_pressed(egui::Key::F1)) {
+                self.show_manual = !self.show_manual;
+            }
+
+            // The manual takes over the centre pane (read-only; not an indexed note).
+            if self.show_manual {
+                ui.horizontal(|ui| {
+                    if ui.button("✕ Close").clicked() {
+                        self.show_manual = false;
+                    }
+                    ui.separator();
+                    ui.strong("Phanes — Manual");
+                    ui.weak("(F1 to toggle)");
+                });
+                ui.separator();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    CommonMarkViewer::new().show(ui, &mut self.md_cache, MANUAL);
+                });
+                return (save_requested, action, ask_select);
+            }
+
             ui.horizontal(|ui| {
                 if ui.selectable_label(self.mode == Mode::View, "View").clicked() {
                     self.mode = Mode::View;
@@ -1671,6 +1700,9 @@ impl eframe::App for PhanesApp {
                 }
                 if ui.selectable_label(self.mode == Mode::Ask, "Ask").clicked() {
                     self.mode = Mode::Ask;
+                }
+                if ui.button("?").on_hover_text("Read the manual (F1)").clicked() {
+                    self.show_manual = true;
                 }
                 ui.separator();
                 match self.mode {
