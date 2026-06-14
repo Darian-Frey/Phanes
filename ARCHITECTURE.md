@@ -63,6 +63,10 @@ the model or the network.
 - **embed.rs** *(feature `enrich`)* — embedding client for the same server's
   `/v1/embeddings` endpoint; one vector per note at index time for semantic
   "near this" (F-012, D-013). Also degrades gracefully.
+- **ask.rs** *(feature `enrich`)* — RAG "Ask" mode (F-015): embed a question,
+  rank the stored embeddings (`ask::rank`, deterministic), and run one on-demand
+  generation over the retrieved notes with citations. A user-invoked query-time
+  generative action — the INV-1 carve-out, boundary in D-016. Degrades gracefully.
 - **graph.rs** — builds the relationship graph (links + shared tags + semantic
   edges) and analyses it (components, orphans, candidate bridges) for the `gaps`
   command and the UI graph view (F-013). Deterministic; rebuilt from the index,

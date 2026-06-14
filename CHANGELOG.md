@@ -7,6 +7,18 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-015 RAG "Ask" mode. `phanes ask "<question>"` and a UI **Ask** tab answer a
+  natural-language question from the notes: embed the question, retrieve the `k`
+  nearest notes from the stored vectors (`ask::rank`, deterministic), and have the
+  local model answer from those excerpts with `[title]` citations and a clickable
+  source list. The one feature that puts the model on a query path, so it is a
+  deliberately separate, user-invoked mode — never wired into `search`/`near`/
+  `show` (the INV-1 carve-out; boundary recorded in D-016, extending D-015). Needs
+  `--features enrich`, a model server, and a prior `index --embed`; graceful on
+  any failure (INV-4). In the UI the call runs on a background thread (its own read
+  DB connection) so the window stays responsive. `enrich::chat` is now
+  `pub(crate)` so `ask` reuses the one chat round-trip. Live-verified against LM
+  Studio.
 - F-014 Editable / acceptable tags (propose → accept). The info panel's tags
   section is now editable: `×` removes an asserted tag, `✓` accepts a proposed
   (`~`) tag (promotes it to asserted), and an "add tag" field appends one.

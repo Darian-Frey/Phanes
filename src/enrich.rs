@@ -85,8 +85,8 @@ fn user_message(title: &str, body: &str) -> String {
 }
 
 /// One chat-completion round trip; returns the assistant message content.
-/// Shared by extraction (with a json_schema) and bridge proposal (freeform).
-fn chat(system: &str, user: &str, response_format: Option<serde_json::Value>, max_tokens: u32) -> Result<String> {
+/// Shared by extraction (json_schema), bridge proposal, and `ask` (freeform).
+pub(crate) fn chat(system: &str, user: &str, response_format: Option<serde_json::Value>, max_tokens: u32) -> Result<String> {
     let mut payload = json!({
         "model": model_id(),
         "messages": [

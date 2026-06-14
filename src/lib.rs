@@ -21,3 +21,6 @@ pub mod enrich;
 
 #[cfg(feature = "enrich")]
 pub mod embed;
+
+#[cfg(feature = "enrich")]
+pub mod ask;

@@ -175,6 +175,27 @@ the link version remains a candidate.
 the model's next pass too (`merge_proposed` skips already-asserted tags). Related:
 F-004, F-008, INV-2.
 
+### F-015 RAG "Ask" mode
+**Priority:** Could
+**Acceptance:**
+- `phanes ask "<question>"` (and a UI **Ask** tab) answers a natural-language
+  question from the notes: embed the question, retrieve the `k` most cosine-
+  similar notes from the stored vectors (`ask::rank`), and have the local model
+  answer from those excerpts, citing note titles in `[brackets]`.
+- The answer lists its source notes (with `%` similarity); in the UI they are
+  click-through to the note. Needs the `enrich` build, a model server, and a prior
+  `index --embed`.
+- It is the **only** feature that puts the model on a query path, so it is a
+  deliberately separate, user-invoked mode — never wired into `search`/`near`/
+  `show`. The INV-1 carve-out (see D-016, extending D-015). Graceful on any
+  failure (no embeddings, server down) — `Err` reported, never a crash (INV-4).
+- In the UI the model call runs on a background thread (its own read DB
+  connection), so the window stays responsive.
+**Status:** Complete (post-roadmap). The one candidate flagged as breaking INV-1;
+shipped as a bounded, opt-in mode per the boundary recorded in D-016.
+**Notes:** Retrieval is deterministic over the index-time embeddings (INV-1 holds
+for retrieval); only generation runs on demand. Related: F-008, F-012, D-016.
+
 ## Candidate features (uncommitted)
 
 Ideas not committed to. Most come from a 2026-06-11 survey of local-LLM note
@@ -211,11 +232,9 @@ chat) does not and is flagged.
 
 ### Powerful but breaks INV-1 — only as a bounded, opt-in mode
 
-- **"Ask" / RAG chat over the corpus** with citations (the most popular feature
-  in Reor/Khoj/LM Studio). Retrieval reuses the index-time embeddings; only
-  generation runs on demand. Because it puts the model in a query path, it must
-  be a deliberately separate, user-invoked mode — never baked into `search`/`show`
-  — and warrants its own DECISIONS entry recording the boundary.
+- ~~**"Ask" / RAG chat over the corpus** with citations~~ — **shipped as F-015**
+  (the boundary is recorded in D-016). Retrieval reuses the index-time embeddings;
+  only generation runs on demand, in a deliberately separate user-invoked mode.
 
 ### Smaller
 

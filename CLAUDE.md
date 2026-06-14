@@ -9,9 +9,9 @@ that must not drift.
   embedding run *only* at index time (`indexer::run`, hash-gated). The instant
   query paths — `search` / `stale` / `related` / `show` / `near` — never invoke
   the model and stay offline. The one exception is **explicitly user-invoked
-  generative actions** (the `bridge` command; a future `ask` mode): opt-in,
+  generative actions** (the `bridge` command and the RAG `ask` mode): opt-in,
   clearly separate from the daily-driver queries, and graceful on failure
-  (D-015). The hash gate in `indexer.rs` is load-bearing; do not bypass it, and
+  (D-015, D-016). The hash gate in `indexer.rs` is load-bearing; do not bypass it, and
   never wire the model into a path a user expects to be instant.
 - **INV-2 — Proposed never overwrites asserted.** `model::Sourced<T>` tags every
   value with `Provenance::{Asserted, Proposed}`. Deterministic facts are
@@ -80,8 +80,22 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   thread (mpsc channel → floating result window) so the UI never freezes. Build
   the UI with bridges via `cargo run --features ui,enrich --bin phanes-ui -- ideas`.
   A canvas stats overlay shows notes/links/clusters/orphans. Live-verified.
+- **Done (F-014 editable/acceptable tags):** the info panel's tags section edits
+  asserted tags in place — `×` removes, `✓` accepts a proposed tag (promote to
+  asserted), an "add tag" field appends. Writes the frontmatter `tags:` key via
+  `scaffold::set_tags` and syncs the DB via `store::set_asserted_tags` (no full
+  re-index, so other proposed tags survive — INV-2). Propose→accept for tags; the
+  link form remains a candidate.
+- **Done (F-015 RAG "Ask" mode):** `ask.rs` (feature `enrich`) + the `phanes ask`
+  command and UI **Ask** tab. Embeds the question, ranks the stored embeddings
+  (`ask::rank`, deterministic), and runs one on-demand generation over the
+  retrieved notes with `[title]` citations + clickable sources. The second
+  query-time generative action under the D-015 carve-out — boundary recorded in
+  D-016; never wired into the instant query paths. UI call is threaded (own read
+  DB connection). `enrich::chat` is `pub(crate)` for reuse. Live-verified.
 - **Not yet built:** the remaining FEATURES.md candidates (taxonomy-aware tags,
-  propose→accept links, RAG "ask" mode, open-in-$EDITOR, the gap overlay).
+  propose→accept *links*, open-in-$EDITOR, near-duplicate/merge detection,
+  title suggestions, stale-triage next steps).
 
 ## Suggested implementation order
 

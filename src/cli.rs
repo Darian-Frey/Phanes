@@ -54,6 +54,8 @@ pub enum Command {
     Gaps,
     /// Propose an idea bridging two notes (needs the `enrich` build + a server).
     Bridge { a: String, b: String },
+    /// Ask a question answered from your notes (RAG; needs `enrich` + `--embed`).
+    Ask { question: String },
     /// Show one idea's metadata and relationships.
     Show { id_or_title: String },
     /// Create a new idea note with the frontmatter pre-filled.

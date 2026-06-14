@@ -57,6 +57,7 @@ enum Mode {
     View,
     Edit,
     Graph,
+    Ask,
 }
 
 /// What a click on the graph canvas resolved to.
@@ -72,6 +73,24 @@ enum BridgeState {
     Proposing { a: String, b: String },
     Done { a: String, b: String, text: String },
     Error(String),
+}
+
+/// State of an on-demand RAG "Ask" query (model call on a background thread).
+enum AskState {
+    Idle,
+    Asking,
+    Answered { question: String, text: String, sources: Vec<(String, String)> },
+    Error(String),
+}
+
+/// What the background Ask worker sends back: the answer plus its cited sources
+/// as `(id, "Title (NN%)")` pairs (plain types, so this compiles without enrich).
+/// Only constructed under `enrich`; read by `poll_ask` regardless.
+#[cfg_attr(not(feature = "enrich"), allow(dead_code))]
+struct AnswerData {
+    question: String,
+    text: String,
+    sources: Vec<(String, String)>,
 }
 
 /// A folder in the explorer: subdirectories plus the notes directly in it.
@@ -148,6 +167,10 @@ struct PhanesApp {
     // background "Scan + AI" worker (enrich + embed on its own DB connection)
     ai_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<IndexReport>>>,
     tag_input: String, // the "add tag" field in the info panel
+    // RAG "Ask" mode (background thread + channel)
+    ask_input: String,
+    ask: AskState,
+    ask_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<AnswerData>>>,
 }
 
 /// A note's asserted tag values (the editable, file-backed set).
@@ -201,6 +224,9 @@ impl PhanesApp {
             bridge_rx: None,
             ai_rx: None,
             tag_input: String::new(),
+            ask_input: String::new(),
+            ask: AskState::Idle,
+            ask_rx: None,
         }
     }
 
@@ -304,6 +330,123 @@ impl PhanesApp {
                 self.bridge_rx = None;
             }
         }
+    }
+
+    /// Kick off a RAG "Ask" query on a background thread: the worker opens its own
+    /// (read-only) DB connection, embeds the question, retrieves the nearest notes,
+    /// and asks the local model — so the slow model calls never freeze the UI. A
+    /// query-time generative action, the INV-1 carve-out (D-015). Gated on `enrich`.
+    fn start_ask(&mut self) {
+        let question = self.ask_input.trim().to_string();
+        if question.is_empty() || self.ask_rx.is_some() {
+            return;
+        }
+        self.ask = AskState::Asking;
+
+        #[cfg(feature = "enrich")]
+        {
+            let db = self.root.join(".phanes").join("index.db");
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.ask_rx = Some(rx);
+            std::thread::spawn(move || {
+                let result = (|| {
+                    let store = Store::open(&db)?;
+                    let answer = phanes::ask::ask(&store, &question, 5)?;
+                    Ok(AnswerData {
+                        question,
+                        text: answer.text,
+                        sources: answer
+                            .sources
+                            .into_iter()
+                            .map(|s| (s.id, format!("{} ({:.0}%)", s.title, s.similarity * 100.0)))
+                            .collect(),
+                    })
+                })();
+                let _ = tx.send(result);
+            });
+        }
+        #[cfg(not(feature = "enrich"))]
+        {
+            self.ask = AskState::Error("rebuild with `--features ui,enrich` to use Ask".into());
+        }
+    }
+
+    /// Poll the background Ask worker; store the answer when it arrives.
+    fn poll_ask(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.ask_rx else { return };
+        match rx.try_recv() {
+            Ok(result) => {
+                self.ask_rx = None;
+                self.ask = match result {
+                    Ok(a) => AskState::Answered {
+                        question: a.question,
+                        text: a.text,
+                        sources: a.sources,
+                    },
+                    Err(e) => AskState::Error(format!("ask failed: {e}")),
+                };
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.ask_rx = None;
+                self.ask = AskState::Error("ask worker stopped unexpectedly".into());
+            }
+        }
+    }
+
+    /// The centre-pane "Ask" panel: a question field + the latest answer with its
+    /// cited sources (clickable). Returns a note id if a source was clicked.
+    fn ask_ui(&mut self, ui: &mut egui::Ui) -> Option<String> {
+        let mut clicked = None;
+        let busy = self.ask_rx.is_some();
+
+        ui.horizontal(|ui| {
+            let resp = ui.add_enabled(
+                !busy,
+                egui::TextEdit::singleline(&mut self.ask_input)
+                    .hint_text("Ask a question about your notes…")
+                    .desired_width(ui.available_width() - 70.0),
+            );
+            let submit = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui.add_enabled(!busy, egui::Button::new("Ask")).clicked() || submit)
+                && !self.ask_input.trim().is_empty()
+            {
+                self.start_ask();
+            }
+        });
+        ui.weak("Answers are grounded in your most relevant notes (needs `index --embed`).");
+        ui.separator();
+
+        egui::ScrollArea::vertical().show(ui, |ui| match &self.ask {
+            AskState::Idle => {
+                ui.weak("Ask a question to search and summarise across your notes.");
+            }
+            AskState::Asking => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Retrieving notes and asking the model…");
+                });
+            }
+            AskState::Answered { question, text, sources } => {
+                ui.strong(question.as_str());
+                ui.add_space(6.0);
+                ui.label(text.as_str());
+                if !sources.is_empty() {
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.strong("Sources");
+                    for (id, label) in sources {
+                        if ui.selectable_label(false, label.as_str()).clicked() {
+                            clicked = Some(id.clone());
+                        }
+                    }
+                }
+            }
+            AskState::Error(msg) => {
+                ui.colored_label(egui::Color32::from_rgb(235, 140, 90), msg.as_str());
+            }
+        });
+        clicked
     }
 
     /// Floating window showing the in-progress / finished bridge proposal.
@@ -983,6 +1126,7 @@ impl eframe::App for PhanesApp {
         let central = egui::CentralPanel::default().show_inside(ui, |ui| {
             let mut save_requested = false;
             let mut action: Option<GraphAction> = None;
+            let mut ask_select: Option<String> = None;
 
             ui.horizontal(|ui| {
                 if ui.selectable_label(self.mode == Mode::View, "View").clicked() {
@@ -994,30 +1138,39 @@ impl eframe::App for PhanesApp {
                 if ui.selectable_label(self.mode == Mode::Graph, "Graph").clicked() {
                     self.mode = Mode::Graph;
                 }
+                if ui.selectable_label(self.mode == Mode::Ask, "Ask").clicked() {
+                    self.mode = Mode::Ask;
+                }
                 ui.separator();
-                if self.mode == Mode::Graph {
-                    ui.checkbox(&mut self.show_gaps, "Gaps")
-                        .on_hover_text("Highlight orphans and candidate bridges");
-                    ui.separator();
-                    if self.show_gaps {
-                        ui.weak("drag a node · click a dashed bridge to propose an idea");
-                    } else {
-                        ui.weak("scroll = zoom · drag = pan · click a node");
+                match self.mode {
+                    Mode::Graph => {
+                        ui.checkbox(&mut self.show_gaps, "Gaps")
+                            .on_hover_text("Highlight orphans and candidate bridges");
+                        ui.separator();
+                        if self.show_gaps {
+                            ui.weak("drag a node · click a dashed bridge to propose an idea");
+                        } else {
+                            ui.weak("scroll = zoom · drag = pan · click a node");
+                        }
                     }
-                } else {
-                    let dirty = self.dirty();
-                    if ui
-                        .add_enabled(dirty, egui::Button::new("Save"))
-                        .on_hover_text("Write the file and re-index (Ctrl+S)")
-                        .clicked()
-                    {
-                        save_requested = true;
+                    Mode::Ask => {
+                        ui.weak("ask a question answered from your notes (RAG)");
                     }
-                    if dirty {
-                        ui.colored_label(egui::Color32::from_rgb(225, 200, 110), "● unsaved");
-                    }
-                    if let Some(msg) = &self.status_msg {
-                        ui.weak(msg);
+                    _ => {
+                        let dirty = self.dirty();
+                        if ui
+                            .add_enabled(dirty, egui::Button::new("Save"))
+                            .on_hover_text("Write the file and re-index (Ctrl+S)")
+                            .clicked()
+                        {
+                            save_requested = true;
+                        }
+                        if dirty {
+                            ui.colored_label(egui::Color32::from_rgb(225, 200, 110), "● unsaved");
+                        }
+                        if let Some(msg) = &self.status_msg {
+                            ui.weak(msg);
+                        }
                     }
                 }
             });
@@ -1025,6 +1178,8 @@ impl eframe::App for PhanesApp {
 
             if self.mode == Mode::Graph {
                 action = self.graph_ui(ui);
+            } else if self.mode == Mode::Ask {
+                ask_select = self.ask_ui(ui);
             } else if self.selected_idea.is_none() {
                 ui.weak("Select a note from the left.");
             } else {
@@ -1037,7 +1192,7 @@ impl eframe::App for PhanesApp {
                                 .desired_width(f32::INFINITY),
                         );
                     }
-                    // View (and the unreachable Graph arm)
+                    // View (and the unreachable Graph/Ask arms)
                     _ => {
                         CommonMarkViewer::new().show(ui, &mut self.md_cache, &self.buffer);
                     }
@@ -1046,9 +1201,9 @@ impl eframe::App for PhanesApp {
                     save_requested = true;
                 }
             }
-            (save_requested, action)
+            (save_requested, action, ask_select)
         });
-        let (save_requested, action) = central.inner;
+        let (save_requested, action, ask_select) = central.inner;
         if save_requested && self.dirty() {
             self.save();
         }
@@ -1057,10 +1212,14 @@ impl eframe::App for PhanesApp {
             Some(GraphAction::Bridge(a, b)) => self.start_bridge(&a, &b),
             None => {}
         }
+        if let Some(id) = ask_select {
+            self.select(id);
+        }
 
-        // Background workers: AI scan + bridge proposal.
+        // Background workers: AI scan + bridge proposal + ask.
         self.poll_ai_scan(ui.ctx());
         self.poll_bridge(ui.ctx());
+        self.poll_ask(ui.ctx());
         self.bridge_window(ui.ctx());
     }
 }

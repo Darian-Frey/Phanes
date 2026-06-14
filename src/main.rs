@@ -51,6 +51,7 @@ fn main() -> Result<()> {
                 _ => println!("could not resolve both notes (need two existing ids/titles)"),
             }
         }
+        Command::Ask { question } => ask_cli(&store, &question),
         Command::Show { id_or_title } => match query::resolve(&store, &id_or_title)? {
             Some(id) => {
                 let idea = query::get(&store, &id)?.expect("a resolved id always exists");
@@ -198,6 +199,31 @@ fn propose_bridge_cli(a: &Idea, b: &Idea) {
     {
         let _ = (a, b);
         println!("(build with --features enrich, and run a model server, to propose a bridge)\n");
+    }
+}
+
+/// Answer a question from the indexed notes (RAG). The model call is gated on the
+/// `enrich` feature and the carve-out from INV-1 for user-invoked generative
+/// actions (D-015); retrieval is deterministic over the stored embeddings.
+fn ask_cli(store: &Store, question: &str) {
+    #[cfg(feature = "enrich")]
+    match phanes::ask::ask(store, question, 5) {
+        Ok(answer) => {
+            println!("\n{}\n", answer.text);
+            if !answer.sources.is_empty() {
+                println!("Sources:");
+                for s in &answer.sources {
+                    println!("  {} — {} ({:.0}% similar)", s.id, s.title, s.similarity * 100.0);
+                }
+            }
+            println!();
+        }
+        Err(e) => println!("ask failed: {e}\n"),
+    }
+    #[cfg(not(feature = "enrich"))]
+    {
+        let _ = (store, question);
+        println!("(build with --features enrich, run a model server, and `index --embed` to ask)\n");
     }
 }
 

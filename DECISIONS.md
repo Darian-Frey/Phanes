@@ -470,3 +470,48 @@ gracefully (reported, never crash).
 **Reversal conditions.** Revisit if query-time model use starts leaking into the
 hot paths or undermines the fast/offline promise; if so, move generative actions
 behind an even harder boundary (separate binary, or explicit "online mode").
+
+### D-016 RAG "Ask" mode is a bounded, opt-in query-time action (not a query path)
+**Decided:** 2026-06-14
+**Recorded:** 2026-06-14
+**Status:** Accepted
+**Authors:** Shane Hartley
+**Related:** F-015, F-012, INV-1, D-013, D-015
+
+**Context.** "Ask" answers a natural-language question by retrieving the nearest
+notes and asking the model to summarise them with citations — the most-requested
+feature in comparable tools. It is the one capability that inherently puts the
+model on a *question→answer* path, which the original INV-1 forbade. The
+candidate flagged that it "warrants its own DECISIONS entry recording the
+boundary"; this is it.
+
+**Options.**
+- **A. Don't build it** — keep the model strictly off every read path. Rejected:
+  forgoes the headline retrieval-augmented capability for no benefit the carve-out
+  doesn't already permit.
+- **B. Wire RAG into `search`/`near`** so any query can be "smart." Rejected
+  outright: it would make the model load-bearing for the instant daily-driver
+  paths, breaking the fast/offline promise.
+- **C. Ship it as a separate, explicitly user-invoked mode** under the existing
+  D-015 generative-action carve-out — its own `ask` command and UI tab, never
+  reachable from the instant queries. Chosen.
+
+**Decision.** `ask::ask` (behind the `enrich` feature) embeds the question,
+ranks the stored index-time embeddings (deterministic — `ask::rank`, reusing
+`query::cosine`), and runs **one** on-demand generation over the retrieved
+excerpts. Retrieval keeps INV-1 (no model — the vectors were computed at index
+time); only generation is online, and only when the user asks. The instant paths
+(`search`, `stale`, `related`, `show`, `near`) stay model-free. Failures degrade
+gracefully (`Err` reported; the UI shows it).
+
+**Consequences.**
+- The D-015 carve-out now covers two actions: `bridge` and `ask`. The boundary is
+  unchanged — generative actions are opt-in, slow, online, and segregated from the
+  instant queries.
+- `enrich::chat` became `pub(crate)` so `ask` can reuse the one chat round-trip.
+- Answers are only as good as retrieval: if no note covers the question the model
+  is told to say so rather than invent — but hallucination risk is the user's to
+  weigh, which is why it's an explicit mode, not a silent upgrade to `search`.
+
+**Reversal conditions.** Same as D-015: if query-time model use starts leaking
+into the hot paths, move generative actions behind a harder boundary.
