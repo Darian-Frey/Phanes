@@ -7,6 +7,13 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-020 Graph analytics — hubs and clusters. `graph::betweenness` (Brandes,
+  normalised) finds central "bridge" notes; `graph::communities` (deterministic
+  weighted label propagation) groups notes into topical clusters. The UI Graph tab
+  gains a **Clusters** toggle: nodes are coloured by community and sized by
+  centrality (hubs bigger), and the stats overlay shows the cluster count. `phanes
+  gaps` now also prints a **Hubs** list and a **Clusters** summary. Deterministic,
+  no model — rebuilt from the index (INV-1/INV-3); extends F-013.
 - F-019 Live file-watching. The desktop app now watches the root and auto
   re-indexes on external `.md` create/modify/delete — no more pressing ⟳ Scan
   after editing notes outside the app. A `notify` recursive watcher (new UI-only

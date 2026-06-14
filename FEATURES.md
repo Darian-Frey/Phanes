@@ -276,10 +276,15 @@ repaint just because a channel got a message.
   **bridge** notes in the graph.
 - Community detection (e.g. modularity / Louvain) to label **topical clusters**;
   tint or group nodes by cluster.
-**Status:** Candidate
-**Notes:** InfraNodus's signature (betweenness + modularity clusters + structural
+**Status:** Complete (post-roadmap). `graph::betweenness` (Brandes, normalised) and
+`graph::communities` (weighted label propagation, deterministic). The UI Graph tab
+gains a **Clusters** toggle: nodes are coloured by community and sized by
+centrality (hubs bigger); the stats overlay shows the cluster count. `phanes gaps`
+prints a **Hubs** list (top by betweenness) and a **Clusters** summary.
+**Notes:** InfraNodus's signature (betweenness + community clusters + structural
 gaps). Deterministic extension of F-013; folds in the former "cluster + orphan
-overview" idea.
+overview" idea. Label propagation rather than full Louvain — adequate for tinting,
+far simpler.
 
 ### F-021 Hybrid search (keyword + semantic)
 **Priority:** Could

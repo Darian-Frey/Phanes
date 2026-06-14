@@ -309,7 +309,9 @@ A tab bar selects what the centre pane shows:
   select it. The **Gaps** toggle overlays orphans (ringed) and the top candidate
   bridges (dashed). With the `enrich` build, clicking a dashed bridge asks the
   model to propose a connecting idea (shown in a floating window; runs on a
-  background thread).
+  background thread). The **Clusters** toggle colours nodes by topical cluster
+  and sizes them by centrality, so hub notes (the ones many connections route
+  through) stand out — the same hubs/clusters `phanes gaps` lists on the CLI.
 - **Ask** — type a question and get an answer grounded in your most relevant
   notes, with a clickable source list (the UI form of `ask`; needs `enrich` + a
   server + embeddings).

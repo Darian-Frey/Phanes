@@ -93,6 +93,11 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   query-time generative action under the D-015 carve-out — boundary recorded in
   D-016; never wired into the instant query paths. UI call is threaded (own read
   DB connection). `enrich::chat` is `pub(crate)` for reuse. Live-verified.
+- **Done (F-020 graph analytics):** `graph::betweenness` (Brandes, normalised) +
+  `graph::communities` (deterministic weighted label propagation). UI Graph tab has
+  a **Clusters** toggle: node colour = community (`cluster_color` palette), size =
+  centrality; both cached in the app (`centrality`/`communities`) when the graph is
+  built. `phanes gaps` prints Hubs + Clusters. Deterministic (INV-1/INV-3).
 - **Done (F-019 live file-watching):** `notify` recursive watcher (UI-only dep,
   `start_watch`) auto re-indexes on external `.md` changes; filters to `.md`
   outside dotfolders (no `.phanes/` loop), pings a channel + `ctx.request_repaint`

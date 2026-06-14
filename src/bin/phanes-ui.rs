@@ -280,7 +280,10 @@ struct PhanesApp {
     graph_pan: egui::Pos2, // world point shown at the canvas centre
     graph_zoom: f32,
     graph_alpha: f32, // sim "temperature": cools to settle, reheats on drag
-    show_gaps: bool,  // overlay orphans + candidate bridges
+    show_gaps: bool,     // overlay orphans + candidate bridges
+    show_clusters: bool, // colour nodes by topical community (F-020)
+    centrality: Vec<f32>,   // betweenness per node, cached with the graph (F-020)
+    communities: Vec<usize>, // community id per node, cached with the graph (F-020)
     // model-proposed bridge (background thread + channel)
     bridge: BridgeState,
     bridge_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<String>>>,
@@ -362,6 +365,9 @@ impl PhanesApp {
             graph_zoom: 1.0,
             graph_alpha: 1.0,
             show_gaps: false,
+            show_clusters: false,
+            centrality: Vec::new(),
+            communities: Vec::new(),
             bridge: BridgeState::None,
             bridge_rx: None,
             ai_rx: None,
@@ -821,6 +827,8 @@ impl PhanesApp {
             .collect();
         self.pinned = None;
         self.graph_alpha = 1.0;
+        self.centrality = g.betweenness();
+        self.communities = g.communities();
         self.graph = Some(g);
     }
 
@@ -952,8 +960,16 @@ impl PhanesApp {
         for (i, node) in g.nodes.iter().enumerate() {
             let p = to_screen(self.layout[i]);
             let sel = self.selected.as_deref() == Some(node.id.as_str());
-            let r = if sel || hovered == Some(i) { 8.0 } else { 6.0 };
-            painter.circle_filled(p, r, status_color(node.status));
+            // Size by centrality (hubs bigger); colour by cluster when toggled.
+            let c = self.centrality.get(i).copied().unwrap_or(0.0);
+            let base = 5.0 + 7.0 * c;
+            let r = if sel || hovered == Some(i) { base + 2.0 } else { base };
+            let fill = if self.show_clusters {
+                cluster_color(self.communities.get(i).copied().unwrap_or(0))
+            } else {
+                status_color(node.status)
+            };
+            painter.circle_filled(p, r, fill);
             if sel {
                 painter.circle_stroke(p, r + 2.5, egui::Stroke::new(2.0, egui::Color32::WHITE));
             }
@@ -999,11 +1015,12 @@ impl PhanesApp {
 
         // Stats overlay (top-left of the canvas).
         let mut stats = format!("{} notes · {} links", g.nodes.len(), g.edges.len());
+        if self.show_clusters {
+            let k = self.communities.iter().max().map(|m| m + 1).unwrap_or(0);
+            stats += &format!(" · {k} clusters");
+        }
         if self.show_gaps {
-            let mut comps = g.components();
-            comps.sort_unstable();
-            comps.dedup();
-            stats += &format!(" · {} clusters · {} orphans", comps.len(), g.orphans().len());
+            stats += &format!(" · {} orphans", g.orphans().len());
         }
         painter.text(
             resp.rect.min + egui::vec2(8.0, 6.0),
@@ -1612,9 +1629,13 @@ impl eframe::App for PhanesApp {
                     Mode::Graph => {
                         ui.checkbox(&mut self.show_gaps, "Gaps")
                             .on_hover_text("Highlight orphans and candidate bridges");
+                        ui.checkbox(&mut self.show_clusters, "Clusters")
+                            .on_hover_text("Colour nodes by topical cluster; size by centrality (hubs bigger)");
                         ui.separator();
                         if self.show_gaps {
                             ui.weak("drag a node · click a dashed bridge to propose an idea");
+                        } else if self.show_clusters {
+                            ui.weak("colour = cluster · size = hub centrality");
                         } else {
                             ui.weak("scroll = zoom · drag = pan · click a node");
                         }
@@ -1900,6 +1921,24 @@ fn prov_badge(ui: &mut egui::Ui, source: Provenance) {
             ui.colored_label(PROPOSED, "(proposed)");
         }
     }
+}
+
+/// A distinct colour per topical cluster id (F-020), cycling a 10-hue palette.
+fn cluster_color(community: usize) -> egui::Color32 {
+    const PALETTE: [(u8, u8, u8); 10] = [
+        (120, 210, 120), // green
+        (120, 160, 235), // blue
+        (235, 170, 110), // orange
+        (210, 130, 215), // purple
+        (110, 205, 215), // cyan
+        (230, 205, 110), // gold
+        (230, 130, 140), // red
+        (160, 200, 120), // lime
+        (150, 150, 230), // indigo
+        (200, 160, 140), // tan
+    ];
+    let (r, g, b) = PALETTE[community % PALETTE.len()];
+    egui::Color32::from_rgb(r, g, b)
 }
 
 /// Per-status colour, mirroring the CLI's `owo-colors` tints.

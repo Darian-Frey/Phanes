@@ -268,6 +268,33 @@ fn print_gaps(g: &phanes::graph::RelGraph) {
             e.weight * 100.0
         );
     }
+
+    // Hubs: the most central "bridge" notes (F-020).
+    let hubs: Vec<_> = g.hubs(5).into_iter().filter(|&(_, c)| c > 0.0).collect();
+    if !hubs.is_empty() {
+        println!("\nHubs — most central (paths run through these):");
+        for (i, c) in hubs {
+            println!("  {:>3.0}%  {} — {}", c * 100.0, g.nodes[i].id, g.nodes[i].title);
+        }
+    }
+
+    // Clusters: topical communities (F-020).
+    let com = g.communities();
+    if let Some(&max) = com.iter().max() {
+        let count = max + 1;
+        // size of each community, largest first
+        let mut sizes = vec![0usize; count];
+        for &c in &com {
+            sizes[c] += 1;
+        }
+        let mut ranked: Vec<(usize, usize)> = sizes.into_iter().enumerate().collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1));
+        let multi = ranked.iter().filter(|&&(_, s)| s > 1).count();
+        println!("\nClusters — {count} topical group(s) ({multi} with >1 note):");
+        for (_, size) in ranked.into_iter().filter(|&(_, s)| s > 1).take(5) {
+            println!("  {size} notes");
+        }
+    }
     println!();
 }
 

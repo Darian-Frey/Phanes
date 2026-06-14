@@ -207,6 +207,140 @@ impl RelGraph {
         b.truncate(limit);
         b
     }
+
+    /// Undirected adjacency list (node → its neighbours).
+    fn adjacency(&self) -> Vec<Vec<usize>> {
+        let mut adj = vec![Vec::new(); self.nodes.len()];
+        for e in &self.edges {
+            adj[e.a].push(e.b);
+            adj[e.b].push(e.a);
+        }
+        adj
+    }
+
+    /// Undirected weighted adjacency list (node → its `(neighbour, weight)`s).
+    fn adjacency_weighted(&self) -> Vec<Vec<(usize, f32)>> {
+        let mut adj = vec![Vec::new(); self.nodes.len()];
+        for e in &self.edges {
+            adj[e.a].push((e.b, e.weight));
+            adj[e.b].push((e.a, e.weight));
+        }
+        adj
+    }
+
+    /// Betweenness centrality per node (Brandes' algorithm, unweighted shortest
+    /// paths), normalised so the most-central node is `1.0`. High = a "bridge"
+    /// hub that many shortest paths pass through. Deterministic; O(n·(n+e)) — fine
+    /// for a personal corpus. Surfaced as node size in the UI graph (F-020).
+    pub fn betweenness(&self) -> Vec<f32> {
+        let n = self.nodes.len();
+        let adj = self.adjacency();
+        let mut bc = vec![0.0f64; n];
+
+        for s in 0..n {
+            let mut stack: Vec<usize> = Vec::new();
+            let mut pred: Vec<Vec<usize>> = vec![Vec::new(); n];
+            let mut sigma = vec![0.0f64; n];
+            let mut dist = vec![-1i64; n];
+            sigma[s] = 1.0;
+            dist[s] = 0;
+            let mut queue = std::collections::VecDeque::new();
+            queue.push_back(s);
+            while let Some(v) = queue.pop_front() {
+                stack.push(v);
+                for &w in &adj[v] {
+                    if dist[w] < 0 {
+                        dist[w] = dist[v] + 1;
+                        queue.push_back(w);
+                    }
+                    if dist[w] == dist[v] + 1 {
+                        sigma[w] += sigma[v];
+                        pred[w].push(v);
+                    }
+                }
+            }
+            let mut delta = vec![0.0f64; n];
+            while let Some(w) = stack.pop() {
+                for &v in &pred[w] {
+                    delta[v] += (sigma[v] / sigma[w]) * (1.0 + delta[w]);
+                }
+                if w != s {
+                    bc[w] += delta[w];
+                }
+            }
+        }
+        for x in &mut bc {
+            *x /= 2.0; // undirected: each path counted from both ends
+        }
+        let max = bc.iter().cloned().fold(0.0f64, f64::max);
+        if max > 0.0 {
+            bc.iter().map(|&x| (x / max) as f32).collect()
+        } else {
+            vec![0.0; n]
+        }
+    }
+
+    /// Topical clusters via weighted label propagation: each node repeatedly
+    /// adopts the label carrying the most neighbour edge-weight (ties → smallest
+    /// label, so it's deterministic). Returns a community id per node, canonical
+    /// `0..k`. Isolated nodes are singleton communities. Surfaced as node colour
+    /// in the UI graph (F-020). Finer-grained than [`components`].
+    pub fn communities(&self) -> Vec<usize> {
+        let n = self.nodes.len();
+        let adj = self.adjacency_weighted();
+        let mut label: Vec<usize> = (0..n).collect();
+
+        for _ in 0..20 {
+            let mut changed = false;
+            for v in 0..n {
+                if adj[v].is_empty() {
+                    continue;
+                }
+                let mut score: HashMap<usize, f32> = HashMap::new();
+                for &(w, weight) in &adj[v] {
+                    *score.entry(label[w]).or_insert(0.0) += weight;
+                }
+                let best = score
+                    .iter()
+                    .max_by(|(la, sa), (lb, sb)| sa.total_cmp(sb).then(lb.cmp(la)))
+                    .map(|(&l, _)| l)
+                    .unwrap_or(label[v]);
+                if best != label[v] {
+                    label[v] = best;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        canonicalize(&label)
+    }
+
+    /// Top `limit` nodes by betweenness (hubs), strongest first.
+    pub fn hubs(&self, limit: usize) -> Vec<(usize, f32)> {
+        let mut ranked: Vec<(usize, f32)> = self.betweenness().into_iter().enumerate().collect();
+        ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+        ranked.truncate(limit);
+        ranked
+    }
+}
+
+/// Relabel arbitrary community ids to a canonical `0..k` in first-seen order, so
+/// they map cleanly onto a small colour palette.
+fn canonicalize(labels: &[usize]) -> Vec<usize> {
+    let mut map: HashMap<usize, usize> = HashMap::new();
+    let mut next = 0;
+    labels
+        .iter()
+        .map(|&l| {
+            *map.entry(l).or_insert_with(|| {
+                let c = next;
+                next += 1;
+                c
+            })
+        })
+        .collect()
 }
 
 /// Union-find root with path compression.
@@ -310,5 +444,47 @@ mod tests {
         assert_eq!(comp[node_idx(&g, "c")], comp[node_idx(&g, "d")]);
         assert_ne!(comp[node_idx(&g, "a")], comp[node_idx(&g, "c")]);
         assert_ne!(comp[node_idx(&g, "e")], comp[node_idx(&g, "a")]);
+    }
+
+    /// Build a graph purely from explicit links (no embeddings needed).
+    fn linked_graph(edges: &[(&str, &[&str])]) -> RelGraph {
+        let mut store = mem_store();
+        for (id, links) in edges {
+            store.upsert(&idea(id, links)).unwrap();
+        }
+        build(&store, &GraphOptions::default()).unwrap()
+    }
+
+    #[test]
+    fn betweenness_peaks_at_the_bridge_node() {
+        // Path a — b — c: b sits on the only shortest path between a and c.
+        let g = linked_graph(&[("a", &["b"]), ("b", &["c"]), ("c", &[])]);
+        let bc = g.betweenness();
+        assert!(bc[node_idx(&g, "b")] > bc[node_idx(&g, "a")]);
+        assert!(bc[node_idx(&g, "b")] > bc[node_idx(&g, "c")]);
+        assert_eq!(bc[node_idx(&g, "b")], 1.0); // normalised: the most central
+        // endpoints lie on no shortest path between others
+        assert_eq!(bc[node_idx(&g, "a")], 0.0);
+        assert_eq!(bc[node_idx(&g, "c")], 0.0);
+    }
+
+    #[test]
+    fn communities_separate_disconnected_clusters() {
+        // Two triangles, no edge between them → two communities; canonical 0..k.
+        let g = linked_graph(&[
+            ("a", &["b", "c"]),
+            ("b", &["c"]),
+            ("c", &[]),
+            ("x", &["y", "z"]),
+            ("y", &["z"]),
+            ("z", &[]),
+        ]);
+        let com = g.communities();
+        assert_eq!(com[node_idx(&g, "a")], com[node_idx(&g, "b")]);
+        assert_eq!(com[node_idx(&g, "a")], com[node_idx(&g, "c")]);
+        assert_eq!(com[node_idx(&g, "x")], com[node_idx(&g, "y")]);
+        assert_ne!(com[node_idx(&g, "a")], com[node_idx(&g, "x")]);
+        // canonical labels start at 0
+        assert_eq!(*com.iter().min().unwrap(), 0);
     }
 }
