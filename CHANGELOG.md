@@ -7,6 +7,11 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- AppImage packaging for the desktop app. `packaging/build-appimage.sh` builds
+  `phanes-ui` (`--features ui,enrich`) and bundles it into a single portable
+  `dist/Phanes-<version>-x86_64.AppImage` via `linuxdeploy` + `appimagetool`,
+  with a generated icon and `.desktop` entry (`packaging/appimage/`). Docs in
+  `packaging/README.md`; `dist/` is git-ignored. Verified to launch on X11.
 - F-015 RAG "Ask" mode. `phanes ask "<question>"` and a UI **Ask** tab answer a
   natural-language question from the notes: embed the question, retrieve the `k`
   nearest notes from the stored vectors (`ask::rank`, deterministic), and have the

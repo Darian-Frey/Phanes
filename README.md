@@ -65,6 +65,10 @@ Three panels over the same index: a **left** explorer (folder tree, filter,
 and a **right** info panel (status dropdown, editable/acceptable tags, summary,
 related, and semantic "near"). See the [Manual](MANUAL.md#the-desktop-app).
 
+**Portable build (Linux):** package the desktop app as a single AppImage with
+`packaging/build-appimage.sh` → `dist/Phanes-<version>-x86_64.AppImage`. See
+[packaging/README.md](packaging/README.md).
+
 ## Build
 
 ```bash

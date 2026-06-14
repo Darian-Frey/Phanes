@@ -1,6 +1,9 @@
 # Build output
 /target
 
+# Packaged artifacts (AppImage etc.) — rebuild with packaging/build-appimage.sh
+/dist
+
 # Phanes index databases (these contain the full body text of every indexed
 # note, so they must never be committed). They live inside whatever folder is
 # the --root, e.g. ideas/.phanes/index.db or ./.phanes/index.db.

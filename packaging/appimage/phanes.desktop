@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Phanes
+GenericName=Idea Notes Explorer
+Comment=Index, search, and surface relationships across project-idea notes
+Exec=phanes-ui
+Icon=phanes
+Terminal=false
+Categories=Utility;Office;
+Keywords=notes;ideas;markdown;search;graph;
