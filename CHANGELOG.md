@@ -7,6 +7,11 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-017 Quick switcher. `Ctrl/Cmd+P` opens a centered fuzzy "jump to a note"
+  overlay from any view: type to filter all notes (subsequence match on title/id),
+  ↑/↓ to move, Enter to open, Esc to close, or click a row. Deterministic
+  (snapshots `query::list` on open); selecting reuses `select`, so it also reveals
+  the note in the explorer.
 - Selecting a note now reveals it in the left explorer: picking a node in the
   Graph tab (or any cross-navigation) expands the containing folders, highlights
   the file, and scrolls to it — in both the Ideas and Files views. A one-shot

@@ -259,6 +259,12 @@ struct PhanesApp {
     explorer_mode: ExplorerMode,
     file_tree: Option<FileTree>, // raw filesystem tree, built lazily / invalidated on reindex
     reveal_selected: bool,       // one-shot: expand+scroll the explorer to the selection
+    // quick switcher (Ctrl+P) — fuzzy jump to any note (F-017)
+    switcher_open: bool,
+    switcher_query: String,
+    switcher_index: usize,
+    switcher_items: Vec<ListItem>, // snapshot of all notes, taken on open
+    switcher_focus: bool,          // request text-field focus on the next frame
 }
 
 /// A note's asserted tag values (the editable, file-backed set).
@@ -320,6 +326,11 @@ impl PhanesApp {
             explorer_mode: ExplorerMode::Ideas,
             file_tree: None,
             reveal_selected: false,
+            switcher_open: false,
+            switcher_query: String::new(),
+            switcher_index: 0,
+            switcher_items: Vec::new(),
+            switcher_focus: false,
         }
     }
 
@@ -540,6 +551,121 @@ impl PhanesApp {
             }
         });
         clicked
+    }
+
+    /// Quick switcher (F-017): Ctrl+P opens a fuzzy "jump to a note" overlay,
+    /// usable from any view. ↑/↓ move, Enter opens, Esc closes. Deterministic —
+    /// just a fuzzy filter over the indexed-note list.
+    fn quick_switcher(&mut self, ctx: &egui::Context) {
+        // Toggle on Ctrl/Cmd+P.
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::P)) {
+            self.switcher_open = !self.switcher_open;
+            if self.switcher_open {
+                self.switcher_query.clear();
+                self.switcher_index = 0;
+                self.switcher_items = self
+                    .store
+                    .as_ref()
+                    .map(|s| query::list(s).unwrap_or_default())
+                    .unwrap_or_default();
+                self.switcher_focus = true;
+            }
+        }
+        if !self.switcher_open {
+            return;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.switcher_open = false;
+            return;
+        }
+
+        // Rank the notes against the query (owned, so the window closure borrows
+        // no note state). Empty query → first notes in order.
+        let q = self.switcher_query.to_lowercase();
+        let mut matches: Vec<(String, String, Status)> = if q.is_empty() {
+            self.switcher_items
+                .iter()
+                .map(|it| (it.id.clone(), it.title.clone(), it.status))
+                .collect()
+        } else {
+            let mut scored: Vec<(i32, &ListItem)> = self
+                .switcher_items
+                .iter()
+                .filter_map(|it| {
+                    let by_title = fuzzy_score(&q, &it.title.to_lowercase());
+                    let by_id = fuzzy_score(&q, &it.id);
+                    by_title.max(by_id).map(|s| (s, it))
+                })
+                .collect();
+            scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.title.len().cmp(&b.1.title.len())));
+            scored.into_iter().map(|(_, it)| (it.id.clone(), it.title.clone(), it.status)).collect()
+        };
+        matches.truncate(50);
+
+        if self.switcher_index >= matches.len() {
+            self.switcher_index = matches.len().saturating_sub(1);
+        }
+
+        // Keyboard nav — read before the window so the text field doesn't eat it.
+        let n = matches.len();
+        let mut navigated = false;
+        if n > 0 {
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                self.switcher_index = (self.switcher_index + 1) % n;
+                navigated = true;
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                self.switcher_index = (self.switcher_index + n - 1) % n;
+                navigated = true;
+            }
+        }
+        let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+
+        let mut chosen: Option<String> = None;
+        egui::Window::new("Quick switcher")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 80.0))
+            .default_width(440.0)
+            .show(ctx, |ui| {
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut self.switcher_query)
+                        .hint_text("Jump to a note…")
+                        .desired_width(f32::INFINITY),
+                );
+                if self.switcher_focus {
+                    resp.request_focus();
+                    self.switcher_focus = false;
+                }
+                ui.weak("↑/↓ move · Enter open · Esc close");
+                ui.separator();
+                if matches.is_empty() {
+                    ui.weak("no matches");
+                }
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    for (i, (id, title, status)) in matches.iter().enumerate() {
+                        let is_sel = i == self.switcher_index;
+                        let text = egui::RichText::new(title).color(status_color(*status));
+                        let r = ui.selectable_label(is_sel, text);
+                        if is_sel && navigated {
+                            r.scroll_to_me(Some(egui::Align::Center));
+                        }
+                        if r.clicked() {
+                            chosen = Some(id.clone());
+                        }
+                    }
+                });
+            });
+
+        if enter {
+            if let Some((id, _, _)) = matches.get(self.switcher_index) {
+                chosen = Some(id.clone());
+            }
+        }
+        if let Some(id) = chosen {
+            self.switcher_open = false;
+            self.select(id);
+        }
     }
 
     /// Floating window showing the in-progress / finished bridge proposal.
@@ -1473,6 +1599,7 @@ impl eframe::App for PhanesApp {
         self.poll_bridge(ui.ctx());
         self.poll_ask(ui.ctx());
         self.bridge_window(ui.ctx());
+        self.quick_switcher(ui.ctx());
     }
 }
 
@@ -1558,6 +1685,33 @@ fn render_tree(
             *clicked = Some(f.id.clone());
         }
     }
+}
+
+/// Subsequence fuzzy score for the quick switcher (F-017): `Some(score)` if every
+/// char of `q` (already lowercased) appears in order in `text` (already
+/// lowercased), higher being a better match; `None` if it doesn't match.
+/// Rewards earlier and contiguous matches.
+fn fuzzy_score(q: &str, text: &str) -> Option<i32> {
+    if q.is_empty() {
+        return Some(0);
+    }
+    let mut score = 0i32;
+    let mut last: Option<usize> = None;
+    let mut chars = text.char_indices();
+    for qc in q.chars() {
+        loop {
+            let (idx, tc) = chars.next()?;
+            if tc == qc {
+                if last.is_some_and(|p| idx == p + 1) {
+                    score += 5; // contiguous run bonus
+                }
+                score += 50 - idx.min(50) as i32; // earlier-is-better
+                last = Some(idx);
+                break;
+            }
+        }
+    }
+    Some(score)
 }
 
 /// Whether the indexed-note subtree contains the note with this id.

@@ -235,9 +235,12 @@ Caveat: a single common-word title (e.g. "Threshold") yields noisy phrase matche
 - A keyboard-driven fuzzy switcher (e.g. `Ctrl+P`) jumps to any note by title or id
   from anywhere in the UI.
 - Optionally a command palette for actions (Scan, toggle mode, new note, Ask).
-**Status:** Candidate
-**Notes:** Obsidian Quick Switcher. Deterministic; reuses `query::list`/`resolve`.
-The cheapest large daily-driver UX win.
+**Status:** Complete (post-roadmap, note-jump). `Ctrl/Cmd+P` opens a centered
+overlay over any view: fuzzy-filters all notes (subsequence match on title/id,
+`fuzzy_score`), ↑/↓ to move, Enter to open, Esc to close; clicking a row opens it.
+Selecting reuses `select` (so it also reveals the note in the explorer, F-013/F-025
+polish). The command-palette-for-actions half is not built yet.
+**Notes:** Obsidian Quick Switcher. Deterministic; snapshots `query::list` on open.
 
 ### F-018 Tag browser
 **Priority:** Could

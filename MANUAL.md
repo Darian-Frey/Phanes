@@ -270,6 +270,10 @@ cargo run --features ui,enrich --bin phanes-ui -- ideas   # with AI features
 Three panels over the same index. The app indexes its folder on startup, so it
 works even when pointed at a never-indexed folder.
 
+**Quick switcher.** Press `Ctrl+P` (`Cmd+P` on macOS) from anywhere to fuzzy-jump
+to any note by title or id: type to filter, ↑/↓ to move, Enter to open, Esc to
+close. The chosen note opens and is revealed in the explorer.
+
 ### Left — explorer
 
 An **Ideas / Files** toggle tops the panel:

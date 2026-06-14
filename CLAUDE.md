@@ -93,6 +93,10 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   query-time generative action under the D-015 carve-out — boundary recorded in
   D-016; never wired into the instant query paths. UI call is threaded (own read
   DB connection). `enrich::chat` is `pub(crate)` for reuse. Live-verified.
+- **Done (F-017 quick switcher):** `Ctrl/Cmd+P` → `quick_switcher` overlay; fuzzy
+  (`fuzzy_score`, subsequence) jump to any note by title/id, ↑/↓/Enter/Esc, snapshots
+  `query::list` on open, selecting reuses `select` (so it reveals in the explorer).
+  Command-palette-for-actions not built.
 - **Done (F-016 backlinks + unlinked mentions):** `query::backlinks` (incoming
   links, `links` JOIN on `dst_id`) and `query::unlinked_mentions` (FTS phrase
   match on the title, minus already-linked + self). `show` prints both; the UI
