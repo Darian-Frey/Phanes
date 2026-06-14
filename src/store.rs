@@ -62,11 +62,22 @@ impl Store {
 
         let tx = self.conn.transaction()?;
 
+        // Upsert in place (ON CONFLICT … DO UPDATE) rather than INSERT OR REPLACE:
+        // REPLACE deletes the old row first, which cascade-drops the note's
+        // embedding. Updating in place preserves it, so re-indexing a note (e.g.
+        // to add enrichment) doesn't lose its vector. Stale embeddings on a real
+        // content change are cleared explicitly by the indexer instead.
         tx.execute(
-            "INSERT OR REPLACE INTO ideas
+            "INSERT INTO ideas
                 (id, path, title, status, status_source,
                  summary, summary_source, last_reviewed, mtime, content_hash, body)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(id) DO UPDATE SET
+                path = excluded.path, title = excluded.title,
+                status = excluded.status, status_source = excluded.status_source,
+                summary = excluded.summary, summary_source = excluded.summary_source,
+                last_reviewed = excluded.last_reviewed, mtime = excluded.mtime,
+                content_hash = excluded.content_hash, body = excluded.body",
             params![
                 idea.id,
                 path,
@@ -82,9 +93,8 @@ impl Store {
             ],
         )?;
 
-        // Replace child rows wholesale. (The REPLACE above may already have
-        // cascade-deleted these; deleting again is a harmless no-op and keeps
-        // the intent explicit and independent of REPLACE's cascade behaviour.)
+        // Replace child rows wholesale (the upsert above updates in place and no
+        // longer cascades, so these explicit deletes are what refresh them).
         // OR IGNORE on insert absorbs duplicates within a single document
         // (e.g. the same wikilink or tag written twice).
         tx.execute("DELETE FROM tags   WHERE idea_id = ?1", params![idea.id])?;
@@ -163,6 +173,35 @@ impl Store {
             params![idea_id, vector.len() as i64, bytes],
         )?;
         Ok(())
+    }
+
+    /// Drop a note's embedding (the indexer calls this when content changed, so
+    /// the now-stale vector is replaced on the next embed pass).
+    pub fn clear_embedding(&self, idea_id: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM embeddings WHERE idea_id = ?1", params![idea_id])?;
+        Ok(())
+    }
+
+    /// Whether a note already has an embedding vector. Drives the embed gap-fill.
+    pub fn has_embedding(&self, idea_id: &str) -> Result<bool> {
+        let n: i64 = self.conn.query_row(
+            "SELECT count(*) FROM embeddings WHERE idea_id = ?1",
+            params![idea_id],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Whether a note has a (model-proposed) summary — a proxy for "already
+    /// enriched", since enrichment always sets one. Drives the enrich gap-fill.
+    pub fn has_summary(&self, idea_id: &str) -> Result<bool> {
+        let n: i64 = self.conn.query_row(
+            "SELECT count(*) FROM ideas WHERE id = ?1 AND summary IS NOT NULL",
+            params![idea_id],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
     }
 
     /// Every stored embedding as `(id, vector)`. The whole set is small enough to
@@ -301,6 +340,28 @@ mod tests {
         assert_eq!(count(&store, "SELECT count(*) FROM tags"), 0);
         assert_eq!(count(&store, "SELECT count(*) FROM links"), 0);
         assert_eq!(count(&store, "SELECT count(*) FROM ideas_fts"), 0);
+    }
+
+    #[test]
+    fn has_embedding_and_has_summary() {
+        let mut store = mem_store();
+        let mut idea = sample_idea(); // sample has a proposed summary
+        idea.summary = None; // start without enrichment
+        store.upsert(&idea).unwrap();
+        assert!(!store.has_summary("spatial-canvas").unwrap());
+        assert!(!store.has_embedding("spatial-canvas").unwrap());
+
+        store.set_embedding("spatial-canvas", &[0.1, 0.2]).unwrap();
+        assert!(store.has_embedding("spatial-canvas").unwrap());
+
+        idea.summary = Some(Sourced::proposed("a summary".into()));
+        store.upsert(&idea).unwrap();
+        assert!(store.has_summary("spatial-canvas").unwrap());
+        // upsert now updates in place, so re-indexing preserves the embedding
+        assert!(store.has_embedding("spatial-canvas").unwrap());
+        // ...until the content actually changes, when the indexer clears it
+        store.clear_embedding("spatial-canvas").unwrap();
+        assert!(!store.has_embedding("spatial-canvas").unwrap());
     }
 
     #[test]

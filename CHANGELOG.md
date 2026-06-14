@@ -103,6 +103,14 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   retained for the optional llama.cpp-native path.
 
 ### Fixed
+- Notes no longer silently lose or miss their embeddings (BUG-002). `upsert` now
+  updates in place (`ON CONFLICT DO UPDATE`) instead of `INSERT OR REPLACE`, so a
+  re-index preserves a note's vector; the indexer clears a stale vector only when
+  content actually changed. Enrichment + embedding moved to gap-fill passes that
+  fill any note missing the layer (not just hash-changed ones), so `index
+  --enrich --embed` / `Scan + AI` now reach already-indexed notes — fixing
+  disconnected nodes in the graph and empty `near`. Added `store::{has_summary,
+  has_embedding, clear_embedding}`.
 - Model requests now retry on a cold-load transport failure (backoff + connect/
   request timeouts), so the first call after the server JIT-loads a model no
   longer fails — affected enrich, embed, and bridge (IMP-001).

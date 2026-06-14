@@ -100,46 +100,77 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
                 .collect(),
         };
 
-        // Optional enrichment fills *gaps only*. Proposed values never clobber
-        // asserted ones — see merge rules below.
+        // Enrich a *changed* file before its single upsert. Proposed values
+        // never clobber asserted ones — see merge rules below.
         if opts.enrich {
             #[cfg(feature = "enrich")]
-            {
-                match crate::enrich::enrich(&idea.title, &idea.body) {
-                    Ok(e) => {
-                        merge_proposed(&mut idea, e);
-                        report.enriched += 1;
-                    }
-                    // Graceful degradation: a missing/slow model must not fail
-                    // the index. We keep the asserted-only record.
-                    Err(err) => eprintln!("enrich skipped for {id}: {err}"),
+            match crate::enrich::enrich(&idea.title, &idea.body) {
+                Ok(e) => {
+                    merge_proposed(&mut idea, e);
+                    report.enriched += 1;
                 }
+                // Graceful degradation: a missing/slow model must not fail the
+                // index. We keep the asserted-only record.
+                Err(err) => eprintln!("enrich skipped for {id}: {err}"),
             }
-            #[cfg(not(feature = "enrich"))]
-            eprintln!("--enrich requested but binary built without the `enrich` feature");
         }
 
         store.upsert(&idea)?;
+        // Content changed, so any existing embedding is stale — drop it; the
+        // embed gap-fill below recomputes it from the new content if requested.
+        store.clear_embedding(&id)?;
+    }
 
-        // Embedding runs after upsert: the INSERT OR REPLACE on `ideas` cascades
-        // away any stale vector, so we write the fresh one here. Index-time only.
-        if opts.embed {
-            #[cfg(feature = "enrich")]
-            {
-                let text = format!("{}\n{}", idea.title, idea.body);
-                match crate::embed::embed(&text) {
-                    Ok(vector) => {
-                        store.set_embedding(&idea.id, &vector)?;
-                        report.embedded += 1;
-                    }
-                    // Graceful degradation: a failed embed leaves the note without
-                    // a vector; it just won't appear in `near` until re-embedded.
-                    Err(err) => eprintln!("embed skipped for {}: {err}", idea.id),
-                }
+    // --- AI gap-fill passes ---
+    // These run over EVERY current note, not just hash-changed ones, so a note
+    // indexed earlier (e.g. by a plain scan, or whose vector was cascade-dropped
+    // when it was last re-indexed) still gets its enrichment/embedding. Each
+    // no-ops for notes that already have the layer, and degrades gracefully.
+    #[cfg(feature = "enrich")]
+    if opts.enrich {
+        for id in &seen {
+            if store.has_summary(id)? {
+                continue;
             }
-            #[cfg(not(feature = "enrich"))]
-            eprintln!("--embed requested but binary built without the `enrich` feature");
+            let Some(mut idea) = crate::query::get(store, id)? else {
+                continue;
+            };
+            match crate::enrich::enrich(&idea.title, &idea.body) {
+                Ok(e) => {
+                    merge_proposed(&mut idea, e);
+                    store.upsert(&idea)?;
+                    report.enriched += 1;
+                }
+                Err(err) => eprintln!("enrich skipped for {id}: {err}"),
+            }
         }
+    }
+
+    // Embedding is filled here, not in the loop: an upsert above cascade-drops a
+    // note's vector, and gate-skipped notes may never have had one — so ensure
+    // every current note ends up with an embedding.
+    #[cfg(feature = "enrich")]
+    if opts.embed {
+        for id in &seen {
+            if store.has_embedding(id)? {
+                continue;
+            }
+            let Some(idea) = crate::query::get(store, id)? else {
+                continue;
+            };
+            match crate::embed::embed(&format!("{}\n{}", idea.title, idea.body)) {
+                Ok(vector) => {
+                    store.set_embedding(id, &vector)?;
+                    report.embedded += 1;
+                }
+                Err(err) => eprintln!("embed skipped for {id}: {err}"),
+            }
+        }
+    }
+
+    #[cfg(not(feature = "enrich"))]
+    if opts.enrich || opts.embed {
+        eprintln!("--enrich/--embed requested but the binary was built without the `enrich` feature");
     }
 
     report.pruned = store.prune_missing(&seen)?;

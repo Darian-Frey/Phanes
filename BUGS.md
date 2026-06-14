@@ -19,6 +19,29 @@ Severity vocabulary: low | medium | high.
 
 ## Fixed
 
+### BUG-002: Notes silently lost / never got embeddings (no graph connections)
+**Status:** fixed (2026-06-13)
+**Found:** 2026-06-13 (two Ananke notes showed disconnected in the graph, with
+"Near: none"; 6 of 29 notes had no embedding)
+**Location:** [src/store.rs](src/store.rs) `upsert`, [src/indexer.rs](src/indexer.rs) gate
+**Severity:** medium (data — affected notes vanished from semantic search, the
+graph, and bridges; no crash)
+**Description.** Two causes compounded. (1) `upsert` used `INSERT OR REPLACE`,
+whose delete step cascade-dropped a note's embedding on every re-index — so a
+plain Scan of an edited note silently removed its vector. (2) Enrichment and
+embedding ran *inside* the hash gate, so an already-indexed note (unchanged hash)
+was skipped wholesale — never enriched/embedded, and `Scan + AI` couldn't fill
+it either.
+**Reproduction.** Embed a corpus, then add/edit a note and run a plain scan (or
+`Scan`, then `Scan + AI`): the note ends with no embedding; `near` and the graph
+show no connections for it.
+**Notes.** Fixed by: (a) `upsert` now updates in place (`ON CONFLICT(id) DO
+UPDATE`), preserving embeddings; the indexer clears a stale vector explicitly
+only when content actually changed; (b) enrichment/embedding moved to **gap-fill
+passes** that run over every current note and fill any missing layer, not just
+hash-changed ones. Added `store::{has_summary, has_embedding, clear_embedding}`.
+Restored 29/29 embeddings; the two Ananke notes now relate at 93%.
+
 ### BUG-001: Wikilink extraction matched TOML/code as links
 **Status:** fixed (2026-06-11, same session as parser::parse — step 2)
 **Found:** 2026-06-11 (testing `parser::parse` against the real corpus)
