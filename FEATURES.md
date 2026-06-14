@@ -248,9 +248,14 @@ polish). The command-palette-for-actions half is not built yet.
 - A pane listing the full tag vocabulary with per-tag note counts; click a tag to
   filter the explorer.
 - Distinguishes asserted from proposed tag usage.
-**Status:** Candidate
-**Notes:** Obsidian tag pane. Deterministic. Complements the taxonomy-aware
-proposed-tags idea — you can't keep tags consistent without seeing the vocabulary.
+**Status:** Complete (post-roadmap). `query::tag_index` returns every tag with its
+asserted/proposed counts and the notes carrying it. The left explorer gains a
+**Tags** view (third toggle): tags listed by use, each a collapsing header
+(`tag · total  (~proposed)`) expanding to its notes (click to open). `phanes tags`
+prints the same vocabulary with counts.
+**Notes:** Obsidian tag pane. Deterministic (INV-3). Complements the taxonomy-aware
+proposed-tags idea — surfacing the vocabulary (e.g. 77 mostly-singleton proposed
+tags on the test corpus) is what makes that worth doing.
 
 ### F-019 Live file-watching auto-reindex
 **Priority:** Could

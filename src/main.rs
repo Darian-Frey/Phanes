@@ -51,6 +51,7 @@ fn main() -> Result<()> {
                 _ => println!("could not resolve both notes (need two existing ids/titles)"),
             }
         }
+        Command::Tags => print_tags(&query::tag_index(&store)?),
         Command::Ask { question } => ask_cli(&store, &question),
         Command::Show { id_or_title } => match query::resolve(&store, &id_or_title)? {
             Some(id) => {
@@ -242,6 +243,24 @@ fn ask_cli(store: &Store, question: &str) {
         let _ = (store, question);
         println!("(build with --features enrich, run a model server, and `index --embed` to ask)\n");
     }
+}
+
+/// Print the tag vocabulary with per-tag counts (asserted, plus proposed if any).
+fn print_tags(groups: &[phanes::query::TagGroup]) {
+    if groups.is_empty() {
+        println!("\n(no tags)\n");
+        return;
+    }
+    println!("\nTags ({}):", groups.len());
+    for g in groups {
+        let total = g.asserted + g.proposed;
+        if g.proposed > 0 {
+            println!("  {:>3}  {}  ({} asserted, {} proposed)", total, g.tag, g.asserted, g.proposed);
+        } else {
+            println!("  {:>3}  {}", total, g.tag);
+        }
+    }
+    println!();
 }
 
 /// Print the structural gap analysis: orphan ideas and candidate bridges.

@@ -7,6 +7,12 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-018 Tag browser. `query::tag_index` returns the whole tag vocabulary with
+  per-tag asserted/proposed counts and the notes carrying each tag. The left
+  explorer gains a **Tags** view (third toggle alongside Ideas/Files): tags listed
+  by use, each a collapsing header (`tag · total (~proposed)`) you expand to its
+  notes (click to open). `phanes tags` prints the same on the CLI. Deterministic
+  (INV-3); built lazily and invalidated on re-index.
 - F-020 Graph analytics — hubs and clusters. `graph::betweenness` (Brandes,
   normalised) finds central "bridge" notes; `graph::communities` (deterministic
   weighted label propagation) groups notes into topical clusters. The UI Graph tab

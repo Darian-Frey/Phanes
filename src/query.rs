@@ -394,6 +394,64 @@ pub fn near(store: &Store, id_or_title: &str, limit: usize) -> Result<Vec<Hit>> 
     Ok(out)
 }
 
+/// One tag and the notes carrying it, split by provenance — the unit of the tag
+/// browser (F-018).
+#[derive(Debug, Clone)]
+pub struct TagGroup {
+    pub tag: String,
+    pub asserted: usize,
+    pub proposed: usize,
+    pub notes: Vec<Hit>,
+}
+
+/// The whole tag vocabulary: every tag with its asserted/proposed counts and the
+/// notes that carry it, sorted by total use (desc) then name. Deterministic — a
+/// single grouped read over the `tags` table (INV-3). Powers the `tags` command
+/// and the UI tag browser.
+pub fn tag_index(store: &Store) -> Result<Vec<TagGroup>> {
+    let mut stmt = store.conn.prepare(
+        "SELECT t.tag, t.source, i.id, i.title, i.status \
+           FROM tags t JOIN ideas i ON i.id = t.idea_id \
+          ORDER BY t.tag, i.title",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?, // tag
+                r.get::<_, String>(1)?, // source
+                r.get::<_, String>(2)?, // id
+                r.get::<_, String>(3)?, // title
+                r.get::<_, String>(4)?, // status
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    // Rows arrive grouped by tag (ORDER BY). Fold consecutive rows into groups.
+    let mut groups: Vec<TagGroup> = Vec::new();
+    for (tag, source, id, title, status) in rows {
+        if groups.last().map(|g| g.tag.as_str()) != Some(tag.as_str()) {
+            groups.push(TagGroup { tag: tag.clone(), asserted: 0, proposed: 0, notes: Vec::new() });
+        }
+        let g = groups.last_mut().unwrap();
+        if Provenance::from_db(&source) == Provenance::Asserted {
+            g.asserted += 1;
+        } else {
+            g.proposed += 1;
+        }
+        g.notes.push(Hit {
+            id,
+            title,
+            status: status_from_row(status),
+            snippet: None,
+            score: None,
+        });
+    }
+    groups.sort_by(|a, b| {
+        (b.asserted + b.proposed).cmp(&(a.asserted + a.proposed)).then(a.tag.cmp(&b.tag))
+    });
+    Ok(groups)
+}
+
 /// Incoming links: notes that explicitly link **to** this one (the dual of the
 /// out-links in [`related`]). Deterministic — a JOIN on the `links` table by
 /// `dst_id`, computed at query time (INV-3). Self-links excluded. Empty if the
@@ -778,5 +836,28 @@ mod tests {
     fn unlinked_mentions_unresolvable_is_empty() {
         let store = related_store();
         assert!(unlinked_mentions(&store, "nope").unwrap().is_empty());
+    }
+
+    #[test]
+    fn tag_index_counts_provenance_and_sorts_by_use() {
+        let mut store = mem_store();
+        let mut a = idea("a", "A", Status::Active, &["ui", "spatial"], "x", Utc::now().date_naive());
+        a.tags.push(Sourced::proposed("ml".into()));
+        store.upsert(&a).unwrap();
+        // b also asserts "ui"; c proposes "ui"
+        store.upsert(&idea("b", "B", Status::Concept, &["ui"], "y", Utc::now().date_naive())).unwrap();
+        let mut c = idea("c", "C", Status::Concept, &[], "z", Utc::now().date_naive());
+        c.tags.push(Sourced::proposed("ui".into()));
+        store.upsert(&c).unwrap();
+
+        let groups = tag_index(&store).unwrap();
+        // "ui" is the most-used tag → first; 2 asserted (a,b) + 1 proposed (c)
+        assert_eq!(groups[0].tag, "ui");
+        assert_eq!(groups[0].asserted, 2);
+        assert_eq!(groups[0].proposed, 1);
+        assert_eq!(groups[0].notes.len(), 3);
+        // "ml" is proposed-only
+        let ml = groups.iter().find(|g| g.tag == "ml").unwrap();
+        assert_eq!((ml.asserted, ml.proposed), (0, 1));
     }
 }

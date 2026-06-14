@@ -42,7 +42,8 @@ phanes search <query> [--status --tag --stale-days --limit]
 phanes stale [--days 180]            # what hasn't been reviewed lately
 phanes related <id|title>            # explicit links + shared-tag neighbours
 phanes near <id|title>               # semantically similar notes (needs --embed)
-phanes gaps                          # orphans + candidate bridges
+phanes gaps                          # orphans + candidate bridges + hubs/clusters
+phanes tags                          # the tag vocabulary with counts
 phanes bridge <a> <b>                # propose an idea connecting two notes (AI)
 phanes ask "<question>"              # answer a question from your notes (RAG, AI)
 phanes show <id|title>               # one idea, with provenance and relationships

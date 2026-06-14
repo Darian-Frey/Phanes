@@ -93,6 +93,11 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   query-time generative action under the D-015 carve-out — boundary recorded in
   D-016; never wired into the instant query paths. UI call is threaded (own read
   DB connection). `enrich::chat` is `pub(crate)` for reuse. Live-verified.
+- **Done (F-018 tag browser):** `query::tag_index` (every tag → asserted/proposed
+  counts + its notes, sorted by use). Left explorer has a **Tags** view (third
+  toggle): collapsing header per tag (`tag · total (~proposed)`) → its notes.
+  `phanes tags` CLI prints the vocabulary. Built lazily (`tag_groups`), invalidated
+  on reload. Deterministic (INV-3).
 - **Done (F-020 graph analytics):** `graph::betweenness` (Brandes, normalised) +
   `graph::communities` (deterministic weighted label propagation). UI Graph tab has
   a **Clusters** toggle: node colour = community (`cluster_color` palette), size =

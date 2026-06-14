@@ -52,6 +52,8 @@ pub enum Command {
     Near { id_or_title: String },
     /// Surface structural gaps: orphan ideas and candidate bridges (needs `--embed`).
     Gaps,
+    /// List the tag vocabulary with per-tag note counts.
+    Tags,
     /// Propose an idea bridging two notes (needs the `enrich` build + a server).
     Bridge { a: String, b: String },
     /// Ask a question answered from your notes (RAG; needs `enrich` + `--embed`).

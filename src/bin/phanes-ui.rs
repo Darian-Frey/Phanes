@@ -20,7 +20,7 @@ use phanes::graph::{self, EdgeKind, RelGraph};
 use phanes::indexer::{self, IndexOptions, IndexReport};
 use phanes::model::{Idea, Provenance, Status};
 use phanes::parser;
-use phanes::query::{self, ListItem, SearchFilter};
+use phanes::query::{self, ListItem, SearchFilter, TagGroup};
 use phanes::scaffold;
 use phanes::store::Store;
 use walkdir::WalkDir;
@@ -102,6 +102,7 @@ struct AnswerData {
 enum ExplorerMode {
     Ideas,
     Files,
+    Tags,
 }
 
 /// A folder in the explorer: subdirectories plus the notes directly in it.
@@ -297,6 +298,7 @@ struct PhanesApp {
     // left-panel view: indexed Ideas vs raw Files (F-025)
     explorer_mode: ExplorerMode,
     file_tree: Option<FileTree>, // raw filesystem tree, built lazily / invalidated on reindex
+    tag_groups: Option<Vec<TagGroup>>, // tag browser, built lazily / invalidated on reindex (F-018)
     reveal_selected: bool,       // one-shot: expand+scroll the explorer to the selection
     // quick switcher (Ctrl+P) — fuzzy jump to any note (F-017)
     switcher_open: bool,
@@ -377,6 +379,7 @@ impl PhanesApp {
             ask_rx: None,
             explorer_mode: ExplorerMode::Ideas,
             file_tree: None,
+            tag_groups: None,
             reveal_selected: false,
             switcher_open: false,
             switcher_query: String::new(),
@@ -1216,6 +1219,7 @@ impl PhanesApp {
         self.mentions = mentions;
         self.graph = None; // rebuilt next time the Graph tab is opened
         self.file_tree = None; // rebuilt next time the Files view is shown
+        self.tag_groups = None; // rebuilt next time the Tags view is shown
     }
 
     /// Write a new asserted status into the selected note's file (deterministic,
@@ -1303,6 +1307,13 @@ impl eframe::App for PhanesApp {
                     {
                         self.explorer_mode = ExplorerMode::Files;
                     }
+                    if ui
+                        .selectable_label(self.explorer_mode == ExplorerMode::Tags, "Tags")
+                        .on_hover_text("Tag vocabulary with counts — expand a tag to see its notes")
+                        .clicked()
+                    {
+                        self.explorer_mode = ExplorerMode::Tags;
+                    }
                 });
                 ui.horizontal(|ui| {
                     let busy = self.ai_rx.is_some();
@@ -1337,6 +1348,15 @@ impl eframe::App for PhanesApp {
                 if self.explorer_mode == ExplorerMode::Files && self.file_tree.is_none() {
                     self.file_tree = Some(build_file_tree(&self.root));
                 }
+                // Build the tag index lazily when the Tags view is shown.
+                if self.explorer_mode == ExplorerMode::Tags && self.tag_groups.is_none() {
+                    self.tag_groups = Some(
+                        self.store
+                            .as_ref()
+                            .and_then(|s| query::tag_index(s).ok())
+                            .unwrap_or_default(),
+                    );
+                }
 
                 // The filter box drives the Ideas view only.
                 let mut filter_changed = false;
@@ -1356,6 +1376,34 @@ impl eframe::App for PhanesApp {
                         }
                         _ => {
                             ui.weak(format!("{} is empty", self.root.display()));
+                        }
+                    },
+                    ExplorerMode::Tags => match &self.tag_groups {
+                        Some(groups) if !groups.is_empty() => {
+                            for tg in groups {
+                                let total = tg.asserted + tg.proposed;
+                                let header = if tg.proposed > 0 {
+                                    format!("{} · {}  (~{})", tg.tag, total, tg.proposed)
+                                } else {
+                                    format!("{} · {}", tg.tag, total)
+                                };
+                                egui::CollapsingHeader::new(header)
+                                    .id_salt(("tag", &tg.tag))
+                                    .default_open(false)
+                                    .show(ui, |ui| {
+                                        for h in &tg.notes {
+                                            let sel = self.selected.as_deref() == Some(h.id.as_str());
+                                            let text = egui::RichText::new(&h.title)
+                                                .color(status_color(h.status));
+                                            if ui.selectable_label(sel, text).clicked() {
+                                                clicked = Some(h.id.clone());
+                                            }
+                                        }
+                                    });
+                            }
+                        }
+                        _ => {
+                            ui.weak("no tags — try ✨ Scan + AI to propose some");
                         }
                     },
                     ExplorerMode::Ideas => {

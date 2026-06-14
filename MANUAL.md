@@ -216,8 +216,18 @@ phanes --root ideas gaps
 ```
 
 Lists **orphans** (notes connected to nothing) and **candidate bridges**
-(note pairs that are semantically close but not explicitly linked). Deterministic;
-candidate bridges need embeddings.
+(note pairs that are semantically close but not explicitly linked), plus **hubs**
+(most central notes) and a **clusters** summary. Deterministic; candidate bridges
+and hubs need embeddings.
+
+### `tags` — the tag vocabulary
+
+```bash
+phanes --root ideas tags
+```
+
+Every tag with its note count (and an asserted/proposed split where they differ),
+most-used first. The CLI form of the explorer's Tags view.
 
 ### `bridge` — propose an idea connecting two notes *(AI)*
 
@@ -276,7 +286,7 @@ close. The chosen note opens and is revealed in the explorer.
 
 ### Left — explorer
 
-An **Ideas / Files** toggle tops the panel:
+An **Ideas / Files / Tags** toggle tops the panel:
 
 - **Ideas** (default) — the indexed notes as a status-tinted folder tree, with a
   filter box (backed by search) and click-to-select.
@@ -284,6 +294,9 @@ An **Ideas / Files** toggle tops the panel:
   file under the root (dotfiles, `.phanes/`, and `.git/` are hidden). Click a
   `.md` to open it — an indexed note shows full info; a not-yet-indexed file opens
   as a raw view with a "Scan to add" hint. Other files open raw and inert.
+- **Tags** — the tag vocabulary, most-used first, each shown as `tag · count`
+  (with `~N` if some uses are proposed). Expand a tag to list the notes carrying
+  it; click one to open it. (`phanes tags` prints the same list on the CLI.)
 
 Two buttons sit below the toggle:
 
