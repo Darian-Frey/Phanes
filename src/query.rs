@@ -394,6 +394,95 @@ pub fn near(store: &Store, id_or_title: &str, limit: usize) -> Result<Vec<Hit>> 
     Ok(out)
 }
 
+/// Incoming links: notes that explicitly link **to** this one (the dual of the
+/// out-links in [`related`]). Deterministic — a JOIN on the `links` table by
+/// `dst_id`, computed at query time (INV-3). Self-links excluded. Empty if the
+/// note can't be resolved. The Obsidian-style "Linked mentions" half of F-016.
+pub fn backlinks(store: &Store, id_or_title: &str) -> Result<Vec<Hit>> {
+    let Some(id) = resolve(store, id_or_title)? else {
+        return Ok(Vec::new());
+    };
+    let mut stmt = store.conn.prepare(
+        "SELECT i.id, i.title, i.status \
+           FROM links l JOIN ideas i ON i.id = l.src_id \
+          WHERE l.dst_id = ?1 AND l.src_id <> l.dst_id \
+          ORDER BY i.title",
+    )?;
+    let hits = stmt
+        .query_map(params![id], |r| {
+            Ok(Hit {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                status: status_from_row(r.get::<_, String>(2)?),
+                snippet: Some("links here".to_string()),
+                score: None,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(hits)
+}
+
+/// Unlinked mentions: notes whose text contains this note's **title** as a phrase
+/// but which don't already link to it — candidate links the user can accept
+/// (F-016). Deterministic — an FTS phrase match minus the notes already in the
+/// `links` table; no model (INV-1/INV-3). Excludes the note itself. Empty if the
+/// note can't be resolved or has a blank/too-short title.
+pub fn unlinked_mentions(store: &Store, id_or_title: &str) -> Result<Vec<Hit>> {
+    let Some(id) = resolve(store, id_or_title)? else {
+        return Ok(Vec::new());
+    };
+    let title: Option<String> = store
+        .conn
+        .query_row("SELECT title FROM ideas WHERE id = ?1", params![id], |r| r.get(0))
+        .optional()?;
+    let Some(title) = title else {
+        return Ok(Vec::new());
+    };
+    let phrase = fts_phrase(&title);
+    if phrase.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = store.conn.prepare(
+        "SELECT i.id, i.title, i.status, \
+                snippet(ideas_fts, 3, '[', ']', '…', 10) \
+           FROM ideas_fts \
+           JOIN ideas i ON i.id = ideas_fts.id \
+          WHERE ideas_fts MATCH ?1 \
+            AND i.id <> ?2 \
+            AND NOT EXISTS (SELECT 1 FROM links l WHERE l.src_id = i.id AND l.dst_id = ?2) \
+          ORDER BY rank LIMIT 20",
+    )?;
+    let hits = stmt
+        .query_map(params![phrase, id], |r| {
+            Ok(Hit {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                status: status_from_row(r.get::<_, String>(2)?),
+                snippet: r.get::<_, Option<String>>(3)?,
+                score: None,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(hits)
+}
+
+/// Rewrite a title into an FTS5 **phrase** match (the whole title, contiguous),
+/// quoting the terms so punctuation can't trip the grammar. Empty for a blank
+/// title.
+fn fts_phrase(raw: &str) -> String {
+    let terms: Vec<String> = raw
+        .split_whitespace()
+        .map(|t| t.replace('"', ""))
+        .filter(|t| !t.is_empty())
+        .collect();
+    if terms.is_empty() {
+        String::new()
+    } else {
+        format!("\"{}\"", terms.join(" "))
+    }
+}
+
 /// Cosine similarity of two vectors. Returns 0 on a dimension mismatch or a
 /// zero-norm vector.
 pub(crate) fn cosine(a: &[f32], b: &[f32]) -> f32 {
@@ -647,5 +736,47 @@ mod tests {
     fn near_without_embedding_is_empty() {
         let store = related_store(); // no vectors stored
         assert!(near(&store, "alpha", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn backlinks_lists_incoming_links_only() {
+        let store = related_store(); // alpha links to beta
+        // beta's backlink is alpha (the out-link, reversed)
+        assert_eq!(ids(&backlinks(&store, "beta").unwrap()), vec!["alpha"]);
+        // alpha has no incoming links
+        assert!(backlinks(&store, "alpha").unwrap().is_empty());
+    }
+
+    #[test]
+    fn backlinks_excludes_self_links() {
+        let mut store = mem_store();
+        let today = Utc::now().date_naive();
+        upsert(&mut store, idea("solo", "Solo", Status::Active, &[], "x", today), &["solo"]);
+        assert!(backlinks(&store, "solo").unwrap().is_empty());
+    }
+
+    #[test]
+    fn unlinked_mentions_finds_phrase_and_excludes_linked_and_self() {
+        let mut store = mem_store();
+        let today = Utc::now().date_naive();
+        // The target note.
+        upsert(&mut store, idea("spatial", "Spatial Canvas", Status::Active, &[], "the canvas itself", today), &[]);
+        // A note that mentions the title in prose but doesn't link it.
+        upsert(&mut store, idea("mentioner", "Mentioner", Status::Concept, &[],
+            "I keep coming back to the Spatial Canvas idea.", today), &[]);
+        // A note that mentions AND already links it — excluded.
+        upsert(&mut store, idea("linker", "Linker", Status::Concept, &[],
+            "See the Spatial Canvas for details.", today), &["spatial"]);
+        // A note that doesn't mention it at all.
+        upsert(&mut store, idea("other", "Other", Status::Concept, &[], "unrelated text", today), &[]);
+
+        let hits = unlinked_mentions(&store, "spatial").unwrap();
+        assert_eq!(ids(&hits), vec!["mentioner"]); // not linker (already links), not self, not other
+    }
+
+    #[test]
+    fn unlinked_mentions_unresolvable_is_empty() {
+        let store = related_store();
+        assert!(unlinked_mentions(&store, "nope").unwrap().is_empty());
     }
 }

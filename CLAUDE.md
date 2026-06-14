@@ -93,6 +93,13 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   query-time generative action under the D-015 carve-out — boundary recorded in
   D-016; never wired into the instant query paths. UI call is threaded (own read
   DB connection). `enrich::chat` is `pub(crate)` for reuse. Live-verified.
+- **Done (F-016 backlinks + unlinked mentions):** `query::backlinks` (incoming
+  links, `links` JOIN on `dst_id`) and `query::unlinked_mentions` (FTS phrase
+  match on the title, minus already-linked + self). `show` prints both; the UI
+  info panel adds **Backlinks** and **Unlinked mentions** sections, the latter
+  with a 🔗 accept button → `accept_mention` writes a relative md link
+  (`scaffold::link_mention`; `<…>`-wrapped for spaces) into the mentioning note,
+  then re-indexes. Caveat: single common-word titles give noisy mentions.
 - **Done (F-025 Files view):** the left panel has an **Ideas/Files** toggle.
   Ideas is the indexed-note tree (`build_tree` from `query::list`); Files is a raw
   `walkdir` tree (`build_file_tree`, dotfiles/`.phanes`/`.git` hidden), rendered by

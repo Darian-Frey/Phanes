@@ -218,10 +218,16 @@ looser idea bullets further down stay unnumbered until they firm up.
   which writes a real link into the file (INV-2).
 - Both deterministic: incoming links are a `links` JOIN on `dst_id`; unlinked
   mentions are an FTS title scan. No model, instant (INV-3).
-**Status:** Candidate
+**Status:** Complete (post-roadmap). `query::backlinks` (incoming links) and
+`query::unlinked_mentions` (FTS phrase match minus already-linked, minus self).
+`show` prints both; the UI info panel shows a **Backlinks** section and an
+**Unlinked mentions** section with a 🔗 accept button. Accept writes a resolvable
+markdown link (`scaffold::link_mention`, angle-bracket-wrapped for paths with
+spaces) into the *mentioning* note, then re-indexes.
 **Notes:** Obsidian's headline feature (Backlinks core plugin = Linked + Unlinked
-mentions). The unlinked→accept path is the link form of F-014's propose→accept and
-the "Propose → accept links" bullet below. The biggest single gap vs peer tools.
+mentions). The unlinked→accept path is the link form of F-014's propose→accept.
+Caveat: a single common-word title (e.g. "Threshold") yields noisy phrase matches
+— it's a vetted suggestion list, accept is manual, mirroring Obsidian.
 
 ### F-017 Quick switcher / command palette
 **Priority:** Should

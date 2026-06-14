@@ -229,6 +229,8 @@ struct PhanesApp {
     selected_idea: Option<Idea>,
     related: Vec<query::Hit>,
     near: Vec<query::Hit>,
+    backlinks: Vec<query::Hit>, // notes linking to the selected one (F-016)
+    mentions: Vec<query::Hit>,  // notes mentioning the title but not linking (F-016)
     // centre editor
     mode: Mode,
     buffer: String,       // raw file content of the selected note (editable)
@@ -256,6 +258,7 @@ struct PhanesApp {
     // left-panel view: indexed Ideas vs raw Files (F-025)
     explorer_mode: ExplorerMode,
     file_tree: Option<FileTree>, // raw filesystem tree, built lazily / invalidated on reindex
+    reveal_selected: bool,       // one-shot: expand+scroll the explorer to the selection
 }
 
 /// A note's asserted tag values (the editable, file-backed set).
@@ -293,6 +296,8 @@ impl PhanesApp {
             selected_idea: None,
             related: Vec::new(),
             near: Vec::new(),
+            backlinks: Vec::new(),
+            mentions: Vec::new(),
             mode: Mode::View,
             buffer: String::new(),
             saved: String::new(),
@@ -314,6 +319,7 @@ impl PhanesApp {
             ask_rx: None,
             explorer_mode: ExplorerMode::Ideas,
             file_tree: None,
+            reveal_selected: false,
         }
     }
 
@@ -842,13 +848,15 @@ impl PhanesApp {
     /// Select a note by id: load its record and its raw file into the buffer.
     /// (Switching notes discards unsaved edits — the dirty marker warns first.)
     fn select(&mut self, id: String) {
-        let (idea, related, near) = match self.store.as_ref() {
+        let (idea, related, near, backlinks, mentions) = match self.store.as_ref() {
             Some(s) => (
                 query::get(s, &id).ok().flatten(),
                 query::related(s, &id).unwrap_or_default(),
                 query::near(s, &id, 8).unwrap_or_default(),
+                query::backlinks(s, &id).unwrap_or_default(),
+                query::unlinked_mentions(s, &id).unwrap_or_default(),
             ),
-            None => (None, Vec::new(), Vec::new()),
+            None => (None, Vec::new(), Vec::new(), Vec::new(), Vec::new()),
         };
         self.buffer = match &idea {
             Some(i) => std::fs::read_to_string(&i.path)
@@ -859,9 +867,12 @@ impl PhanesApp {
         self.selected_idea = idea;
         self.related = related;
         self.near = near;
+        self.backlinks = backlinks;
+        self.mentions = mentions;
         self.selected = Some(id);
         self.mode = Mode::View;
         self.status_msg = None;
+        self.reveal_selected = true; // expand+scroll the explorer to it next render
     }
 
     /// Open a file picked from the **Files** view. If it's an indexed note, this is
@@ -882,10 +893,51 @@ impl PhanesApp {
         self.selected_idea = None;
         self.related.clear();
         self.near.clear();
+        self.backlinks.clear();
+        self.mentions.clear();
         self.selected = None;
         self.mode = Mode::View;
         let name = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         self.status_msg = Some(format!("{name} — not indexed (Scan to add it)"));
+    }
+
+    /// Accept an unlinked mention (F-016): write a resolvable markdown link to the
+    /// selected note into the *mentioning* note's file, then re-index so the new
+    /// link is picked up. Deterministic; no model.
+    fn accept_mention(&mut self, mention: query::Hit) {
+        let Some(target) = &self.selected_idea else { return };
+        let target_title = target.title.clone();
+        let target_path = target.path.clone();
+
+        let Some(mention_path) = self
+            .store
+            .as_ref()
+            .and_then(|s| query::get(s, &mention.id).ok().flatten())
+            .map(|i| i.path)
+        else {
+            return;
+        };
+
+        let rel = relative_md_link(&mention_path, &target_path);
+        // A markdown destination with spaces must be wrapped in <…> or the space
+        // truncates it (verified in parser tests).
+        let target = if rel.contains(' ') { format!("<{rel}>") } else { rel };
+        let Ok(raw) = std::fs::read_to_string(&mention_path) else {
+            self.status_msg = Some(format!("could not read {}", mention_path.display()));
+            return;
+        };
+        let Some(updated) = scaffold::link_mention(&raw, &target_title, &target) else {
+            self.status_msg = Some("no clean mention found to link".into());
+            return;
+        };
+        if std::fs::write(&mention_path, &updated).is_ok() {
+            self.status_msg = Some(format!("linked {} → {}", mention.title, target_title));
+            if let Some(store) = &mut self.store {
+                let opts = IndexOptions { enrich: false, embed: false, force: false };
+                let _ = indexer::run(store, &self.root, &opts);
+            }
+            self.reload_after_index();
+        }
     }
 
     /// Write the buffer to disk and run a one-file index pass. This is the only
@@ -915,18 +967,22 @@ impl PhanesApp {
         let Some(store) = &self.store else { return };
         let items = query::list(store).unwrap_or_default();
         let tree = build_tree(&items, &self.root);
-        let (idea, related, near) = match self.selected.as_ref() {
+        let (idea, related, near, backlinks, mentions) = match self.selected.as_ref() {
             Some(id) => (
                 query::get(store, id).ok().flatten(),
                 query::related(store, id).unwrap_or_default(),
                 query::near(store, id, 8).unwrap_or_default(),
+                query::backlinks(store, id).unwrap_or_default(),
+                query::unlinked_mentions(store, id).unwrap_or_default(),
             ),
-            None => (None, Vec::new(), Vec::new()),
+            None => (None, Vec::new(), Vec::new(), Vec::new(), Vec::new()),
         };
         self.tree = tree;
         self.selected_idea = idea;
         self.related = related;
         self.near = near;
+        self.backlinks = backlinks;
+        self.mentions = mentions;
         self.graph = None; // rebuilt next time the Graph tab is opened
         self.file_tree = None; // rebuilt next time the Files view is shown
     }
@@ -1061,10 +1117,11 @@ impl eframe::App for PhanesApp {
                 ui.separator();
 
                 let mut clicked = None;
+                let reveal = self.reveal_selected; // consumed below; one-shot
                 egui::ScrollArea::vertical().show(ui, |ui| match self.explorer_mode {
                     ExplorerMode::Files => match &self.file_tree {
                         Some(tree) if !tree.dirs.is_empty() || !tree.files.is_empty() => {
-                            render_file_tree(ui, tree, &self.selected, &mut file_click);
+                            render_file_tree(ui, tree, &self.selected, &mut file_click, reveal);
                         }
                         _ => {
                             ui.weak(format!("{} is empty", self.root.display()));
@@ -1075,7 +1132,7 @@ impl eframe::App for PhanesApp {
                             if self.tree.dirs.is_empty() && self.tree.files.is_empty() {
                                 ui.weak(format!("no notes in {}", self.root.display()));
                             } else {
-                                render_tree(ui, &self.tree, &self.selected, &mut clicked);
+                                render_tree(ui, &self.tree, &self.selected, &mut clicked, reveal);
                             }
                         } else if self.results.is_empty() {
                             ui.weak("no matches");
@@ -1091,6 +1148,7 @@ impl eframe::App for PhanesApp {
                         }
                     }
                 });
+                self.reveal_selected = false; // pulse consumed for this render
                 (filter_changed, clicked, rescan, ai_scan, file_click)
             });
         let (filter_changed, clicked, rescan, ai_scan, file_click) = left.inner;
@@ -1120,6 +1178,7 @@ impl eframe::App for PhanesApp {
                 let mut clicked = None;
                 let mut new_status = None;
                 let mut new_tags: Option<Vec<String>> = None;
+                let mut mention_accept: Option<query::Hit> = None;
                 match &self.selected_idea {
                     None => {
                         ui.weak("(select a note)");
@@ -1241,6 +1300,44 @@ impl eframe::App for PhanesApp {
                             }
                         }
 
+                        if !self.backlinks.is_empty() {
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.strong("Backlinks");
+                            for h in &self.backlinks {
+                                let text = egui::RichText::new(format!("{}  (links here)", h.title))
+                                    .color(status_color(h.status));
+                                if ui.selectable_label(false, text).clicked() {
+                                    clicked = Some(h.id.clone());
+                                }
+                            }
+                        }
+
+                        if !self.mentions.is_empty() {
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.strong("Unlinked mentions");
+                                ui.weak("(accept → link)");
+                            });
+                            for h in &self.mentions {
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .small_button("🔗")
+                                        .on_hover_text("Accept: write a link to this note into that one")
+                                        .clicked()
+                                    {
+                                        mention_accept = Some(h.clone());
+                                    }
+                                    let text = egui::RichText::new(&h.title)
+                                        .color(status_color(h.status));
+                                    if ui.selectable_label(false, text).clicked() {
+                                        clicked = Some(h.id.clone());
+                                    }
+                                });
+                            }
+                        }
+
                         ui.add_space(10.0);
                         ui.separator();
                         ui.horizontal(|ui| {
@@ -1261,14 +1358,17 @@ impl eframe::App for PhanesApp {
                         }
                     }
                 }
-                (clicked, new_status, new_tags)
+                (clicked, new_status, new_tags, mention_accept)
             });
-        let (clicked, new_status, new_tags) = right.inner;
+        let (clicked, new_status, new_tags, mention_accept) = right.inner;
         if let Some(s) = new_status {
             self.set_selected_status(s);
         }
         if let Some(tags) = new_tags {
             self.apply_tags(tags);
+        }
+        if let Some(hit) = mention_accept {
+            self.accept_mention(hit);
         }
         if let Some(id) = clicked {
             self.select(id);
@@ -1430,19 +1530,39 @@ fn draw_label(painter: &egui::Painter, pos: egui::Pos2, text: &str) {
 
 /// Render the folder tree: collapsing headers for directories, status-tinted
 /// selectable labels for notes. Sets `clicked` to a note id when one is clicked.
-fn render_tree(ui: &mut egui::Ui, tree: &Tree, selected: &Option<String>, clicked: &mut Option<String>) {
+fn render_tree(
+    ui: &mut egui::Ui,
+    tree: &Tree,
+    selected: &Option<String>,
+    clicked: &mut Option<String>,
+    reveal: bool,
+) {
+    let sel = selected.as_deref();
     for (name, sub) in &tree.dirs {
-        egui::CollapsingHeader::new(name)
-            .default_open(false)
-            .show(ui, |ui| render_tree(ui, sub, selected, clicked));
+        // On a reveal pulse, force-open the folders on the path to the selection
+        // so a node picked elsewhere (e.g. the graph) becomes visible here.
+        let mut header = egui::CollapsingHeader::new(name).default_open(false);
+        if reveal && sel.is_some_and(|id| tree_contains(sub, id)) {
+            header = header.open(Some(true));
+        }
+        header.show(ui, |ui| render_tree(ui, sub, selected, clicked, reveal));
     }
     for f in &tree.files {
-        let is_selected = selected.as_deref() == Some(f.id.as_str());
+        let is_selected = sel == Some(f.id.as_str());
         let text = egui::RichText::new(&f.title).color(status_color(f.status));
-        if ui.selectable_label(is_selected, text).clicked() {
+        let resp = ui.selectable_label(is_selected, text);
+        if is_selected && reveal {
+            resp.scroll_to_me(Some(egui::Align::Center));
+        }
+        if resp.clicked() {
             *clicked = Some(f.id.clone());
         }
     }
+}
+
+/// Whether the indexed-note subtree contains the note with this id.
+fn tree_contains(tree: &Tree, id: &str) -> bool {
+    tree.files.iter().any(|f| f.id == id) || tree.dirs.values().any(|s| tree_contains(s, id))
 }
 
 /// Render the raw **Files** tree (F-025). `.md` files are clickable (open the
@@ -1453,27 +1573,73 @@ fn render_file_tree(
     tree: &FileTree,
     selected: &Option<String>,
     click: &mut Option<(PathBuf, Option<String>)>,
+    reveal: bool,
 ) {
+    let sel = selected.as_deref();
     for (name, sub) in &tree.dirs {
-        egui::CollapsingHeader::new(format!("🗀 {name}"))
-            .default_open(false)
-            .show(ui, |ui| render_file_tree(ui, sub, selected, click));
+        let mut header = egui::CollapsingHeader::new(format!("🗀 {name}")).default_open(false);
+        if reveal && sel.is_some_and(|id| file_tree_contains(sub, id)) {
+            header = header.open(Some(true));
+        }
+        header.show(ui, |ui| render_file_tree(ui, sub, selected, click, reveal));
     }
     for f in &tree.files {
         match &f.id {
             Some(id) => {
-                let is_selected = selected.as_deref() == Some(id.as_str());
-                if ui.selectable_label(is_selected, &f.name).clicked() {
+                let is_selected = sel == Some(id.as_str());
+                let resp = ui.selectable_label(is_selected, &f.name);
+                if is_selected && reveal {
+                    resp.scroll_to_me(Some(egui::Align::Center));
+                }
+                if resp.clicked() {
                     *click = Some((f.path.clone(), Some(id.clone())));
                 }
             }
             // Non-note files: visible but inert (a click still opens them raw).
             None => {
-                if ui.add(egui::Label::new(egui::RichText::new(&f.name).weak()).sense(egui::Sense::click())).clicked() {
+                if ui
+                    .add(egui::Label::new(egui::RichText::new(&f.name).weak()).sense(egui::Sense::click()))
+                    .clicked()
+                {
                     *click = Some((f.path.clone(), None));
                 }
             }
         }
+    }
+}
+
+/// Whether the filesystem subtree contains an indexed `.md` with this id.
+fn file_tree_contains(tree: &FileTree, id: &str) -> bool {
+    tree.files.iter().any(|f| f.id.as_deref() == Some(id))
+        || tree.dirs.values().any(|s| file_tree_contains(s, id))
+}
+
+/// A relative markdown-link target from `from_file`'s directory to `to_file`
+/// (forward slashes, with `../` as needed) — what `link_target_to_id` resolves
+/// back to the target note's id. Used when accepting an unlinked mention (F-016).
+fn relative_md_link(from_file: &Path, to_file: &Path) -> String {
+    let from_dir = from_file.parent().unwrap_or_else(|| Path::new(""));
+    let f: Vec<_> = from_dir.components().collect();
+    let t: Vec<_> = to_file.components().collect();
+    let mut i = 0;
+    while i < f.len() && i < t.len() && f[i] == t[i] {
+        i += 1;
+    }
+    let mut rel = PathBuf::new();
+    for _ in i..f.len() {
+        rel.push("..");
+    }
+    for c in &t[i..] {
+        rel.push(c.as_os_str());
+    }
+    let s = rel.to_string_lossy().replace('\\', "/");
+    if s.is_empty() {
+        to_file
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    } else {
+        s
     }
 }
 

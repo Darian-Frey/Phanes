@@ -124,6 +124,80 @@ pub fn set_tags(raw: &str, tags: &[String]) -> String {
     format!("---\n{key_line}\n---\n\n{raw}")
 }
 
+/// Turn the first plain-text occurrence of `phrase` in `raw` into a markdown link
+/// `[phrase](target)`, returning the new content — or `None` if no clean
+/// occurrence exists. "Clean" means: a whole-word match, outside fenced code
+/// blocks, and not already part of a link. Used by the UI to **accept an unlinked
+/// mention** (F-016): it writes a real, resolvable link into the mentioning note.
+pub fn link_mention(raw: &str, phrase: &str, target: &str) -> Option<String> {
+    if phrase.trim().is_empty() {
+        return None;
+    }
+    let lower_raw = raw.to_lowercase();
+    let lower_phrase = phrase.to_lowercase();
+    let code = fenced_ranges(raw);
+
+    let mut from = 0;
+    while let Some(rel) = lower_raw[from..].find(&lower_phrase) {
+        let start = from + rel;
+        let end = start + lower_phrase.len();
+        from = start + 1;
+
+        // Whole-word: neighbours must not be alphanumeric.
+        let prev = raw[..start].chars().next_back();
+        let next = raw[end..].chars().next();
+        if prev.is_some_and(|c| c.is_alphanumeric()) || next.is_some_and(|c| c.is_alphanumeric()) {
+            continue;
+        }
+        // Skip if inside a fenced code block.
+        if code.iter().any(|r| r.contains(&start)) {
+            continue;
+        }
+        // Skip if it already looks linked (`[phrase`, `(phrase`, `phrase]`, `phrase)`).
+        if matches!(prev, Some('[') | Some('(')) || matches!(next, Some(']') | Some(')')) {
+            continue;
+        }
+
+        let matched = &raw[start..end]; // preserve original casing
+        let mut out = String::with_capacity(raw.len() + target.len() + 4);
+        out.push_str(&raw[..start]);
+        out.push('[');
+        out.push_str(matched);
+        out.push_str("](");
+        out.push_str(target);
+        out.push(')');
+        out.push_str(&raw[end..]);
+        return Some(out);
+    }
+    None
+}
+
+/// Byte ranges of fenced code blocks (``` … ```), so [`link_mention`] can skip
+/// mentions that only appear in code. Line-based and forgiving of an unclosed
+/// fence (treats the rest of the document as code).
+fn fenced_ranges(raw: &str) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut in_fence = false;
+    let mut fence_start = 0;
+    let mut offset = 0;
+    for line in raw.split_inclusive('\n') {
+        if line.trim_start().starts_with("```") {
+            if in_fence {
+                ranges.push(fence_start..offset + line.len());
+                in_fence = false;
+            } else {
+                in_fence = true;
+                fence_start = offset;
+            }
+        }
+        offset += line.len();
+    }
+    if in_fence {
+        ranges.push(fence_start..raw.len());
+    }
+    ranges
+}
+
 /// True for a blockquote line whose field is `Status:` (anchored, so a prose line
 /// like `> **Why this status**:` doesn't match).
 fn is_blockquote_status(line: &str) -> bool {
@@ -247,5 +321,43 @@ mod tests {
         let raw = "---\ntags: [\"a\"]\n---\n\n# T\n";
         let out = set_tags(raw, &[]);
         assert!(parser::parse("t", &out).tags.is_empty());
+    }
+
+    #[test]
+    fn link_mention_wraps_first_clean_occurrence() {
+        let raw = "I like the Spatial Canvas a lot. Spatial Canvas rocks.";
+        let out = link_mention(raw, "Spatial Canvas", "spatial-canvas.md").unwrap();
+        // first occurrence linked, original casing preserved
+        assert!(out.starts_with("I like the [Spatial Canvas](spatial-canvas.md) a lot."));
+        // only the first is linked
+        assert_eq!(out.matches("](spatial-canvas.md)").count(), 1);
+        // and it round-trips: the parser extracts a link to the target
+        assert!(parser::parse("t", &out)
+            .link_targets
+            .iter()
+            .any(|t| t == "spatial-canvas.md"));
+    }
+
+    #[test]
+    fn link_mention_is_case_insensitive_and_whole_word() {
+        // case-insensitive match…
+        assert!(link_mention("about spatial canvas here", "Spatial Canvas", "x.md").is_some());
+        // …but not a partial-word match
+        assert!(link_mention("Spatialise the canvas", "Spatial", "x.md").is_none());
+    }
+
+    #[test]
+    fn link_mention_skips_code_and_already_linked() {
+        // inside a fenced code block → no link
+        let code = "```\nSpatial Canvas\n```\n";
+        assert!(link_mention(code, "Spatial Canvas", "x.md").is_none());
+        // already a link → skipped
+        let linked = "[Spatial Canvas](spatial-canvas.md)";
+        assert!(link_mention(linked, "Spatial Canvas", "x.md").is_none());
+    }
+
+    #[test]
+    fn link_mention_absent_phrase_is_none() {
+        assert!(link_mention("nothing to see", "Spatial Canvas", "x.md").is_none());
     }
 }

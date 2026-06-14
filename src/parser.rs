@@ -386,6 +386,22 @@ body\n";
     }
 
     #[test]
+    fn angle_bracket_link_with_spaces_is_extracted() {
+        // Markdown link destinations with spaces must be wrapped in <…>; the UI
+        // does this when accepting an unlinked mention (F-016). Confirm the path
+        // (and only it) is extracted, and resolves back to the target id.
+        let md = "see [Threshold](<../Project Threshold /Threshold.md>) here";
+        let links = extract_links(md);
+        assert_eq!(links, vec!["../Project Threshold /Threshold.md"]);
+        assert_eq!(
+            link_target_to_id(&links[0], Path::new("Interesting ideas/Ideas.md")),
+            "project-threshold--threshold"
+        );
+        // Without the angle brackets the space breaks the destination → not a link.
+        assert!(extract_links("see [T](../Project Threshold /T.md) here").is_empty());
+    }
+
+    #[test]
     fn link_target_resolves_to_id() {
         let src = Path::new("Interesting ideas/Locus/VISION.md");
         // same-directory path link

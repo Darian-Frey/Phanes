@@ -56,7 +56,9 @@ fn main() -> Result<()> {
             Some(id) => {
                 let idea = query::get(&store, &id)?.expect("a resolved id always exists");
                 let related = query::related(&store, &id)?;
-                print_idea(&idea, &related);
+                let backlinks = query::backlinks(&store, &id)?;
+                let mentions = query::unlinked_mentions(&store, &id)?;
+                print_idea(&idea, &related, &backlinks, &mentions);
             }
             None => println!("no idea matches '{id_or_title}'."),
         },
@@ -79,7 +81,9 @@ fn main() -> Result<()> {
             if let Some(id) = query::resolve(&store, &title)? {
                 let idea = query::get(&store, &id)?.expect("the note was just indexed");
                 let related = query::related(&store, &id)?;
-                print_idea(&idea, &related);
+                let backlinks = query::backlinks(&store, &id)?;
+                let mentions = query::unlinked_mentions(&store, &id)?;
+                print_idea(&idea, &related, &backlinks, &mentions);
             }
         }
     }
@@ -140,7 +144,7 @@ fn tint_status(status: Status) -> String {
 /// Render one idea: metadata with provenance flags, then related ideas. This is
 /// the CLI surface of INV-2 — asserted vs proposed is visible on every field
 /// that can carry it.
-fn print_idea(idea: &Idea, related: &[query::Hit]) {
+fn print_idea(idea: &Idea, related: &[query::Hit], backlinks: &[query::Hit], mentions: &[query::Hit]) {
     println!();
     println!(
         "{}",
@@ -181,6 +185,19 @@ fn print_idea(idea: &Idea, related: &[query::Hit]) {
         for h in related {
             let how = h.snippet.as_deref().unwrap_or("");
             println!("    {}  {} — {} ({})", tint_status(h.status), h.id, h.title, how);
+        }
+    }
+
+    if !backlinks.is_empty() {
+        println!("\n  backlinks (notes linking here):");
+        for h in backlinks {
+            println!("    {}  {} — {}", tint_status(h.status), h.id, h.title);
+        }
+    }
+    if !mentions.is_empty() {
+        println!("\n  unlinked mentions (mention the title but don't link it):");
+        for h in mentions {
+            println!("    {}  {} — {}", tint_status(h.status), h.id, h.title);
         }
     }
     println!();

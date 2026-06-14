@@ -7,6 +7,20 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- Selecting a note now reveals it in the left explorer: picking a node in the
+  Graph tab (or any cross-navigation) expands the containing folders, highlights
+  the file, and scrolls to it — in both the Ideas and Files views. A one-shot
+  "reveal" pulse on selection (F-013/F-025 polish).
+- F-016 Backlinks + unlinked mentions. `query::backlinks` lists incoming links
+  (notes linking *to* the current one — the dual of `related`'s out-links), a
+  `links` JOIN on `dst_id`. `query::unlinked_mentions` lists notes that mention
+  the title as an FTS phrase but don't link it (minus self, minus already-linked).
+  Both deterministic/instant (INV-1/INV-3). `show` prints both; the UI info panel
+  shows a **Backlinks** section and an **Unlinked mentions** section with a 🔗
+  accept button that writes a resolvable markdown link (`scaffold::link_mention`;
+  angle-bracket-wrapped for paths with spaces) into the mentioning note, then
+  re-indexes. The Obsidian-style headline feature; accept is the link form of
+  F-014's propose→accept.
 - F-025 Files view in the left panel. An **Ideas/Files** toggle tops the explorer:
   Ideas is the existing indexed-note tree; Files is a full `walkdir` tree of the
   root (like an IDE explorer — every subfolder and file, with dotfiles/`.phanes`/

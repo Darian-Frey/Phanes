@@ -319,7 +319,12 @@ The GUI counterpart of `show` for the selected note:
   (`~`) tag, promoting it to asserted and writing it into the file; the **add
   tag** field appends a new one. Accepting/removing updates the file and the
   index without disturbing the note's other proposed tags.
-- **Related** and **Near (semantic)** — click any entry to navigate to it.
+- **Related**, **Backlinks**, and **Near (semantic)** — click any entry to
+  navigate to it. *Related* is this note's outgoing links + shared-tag
+  neighbours; *Backlinks* is the reverse — notes that link **to** this one.
+- **Unlinked mentions** — notes that mention this note's title in prose but don't
+  link it. Click 🔗 to **accept** one: Phanes writes a real link into that
+  mentioning note (and re-indexes), turning a loose mention into a tracked link.
 
 ## The local model (AI features)
 
