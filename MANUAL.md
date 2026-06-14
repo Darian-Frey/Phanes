@@ -287,8 +287,10 @@ An **Ideas / Files** toggle tops the panel:
 
 Two buttons sit below the toggle:
 
-- **⟳ Scan** — re-index in place (deterministic, no model). Use it after you add,
-  edit, or delete notes outside the app — they appear without a restart.
+- **⟳ Scan** — re-index in place (deterministic, no model). The app also watches
+  the folder and re-indexes automatically when you add, edit, or delete notes
+  outside it, so you rarely need this — it stays as a manual fallback (e.g. to
+  force a refresh).
 - **✨ Scan + AI** — a background re-index *with* enrichment + embeddings, so new
   or changed notes gain their proposed summaries/tags and their semantic/graph
   layers. Runs on a worker thread (the window stays responsive) and needs the

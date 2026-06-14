@@ -7,6 +7,14 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-019 Live file-watching. The desktop app now watches the root and auto
+  re-indexes on external `.md` create/modify/delete — no more pressing ⟳ Scan
+  after editing notes outside the app. A `notify` recursive watcher (new UI-only
+  dependency) filters to `.md` changes outside dotfolders (so the `.phanes/` index
+  DB can't trigger a loop) and wakes the UI via `request_repaint`; `poll_watch`
+  debounces ~500 ms, defers while a Scan + AI is running, and refreshes only when
+  the index actually changed (the app's own saves cause no churn). Deterministic,
+  hash-gated, no model (INV-1). The ⟳ Scan button remains as a manual fallback.
 - F-017 Quick switcher. `Ctrl/Cmd+P` opens a centered fuzzy "jump to a note"
   overlay from any view: type to filter all notes (subsequence match on title/id),
   ↑/↓ to move, Enter to open, Esc to close, or click a row. Deterministic

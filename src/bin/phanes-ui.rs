@@ -50,7 +50,7 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Phanes",
         options,
-        Box::new(move |_cc| Ok(Box::new(PhanesApp::new(root)))),
+        Box::new(move |cc| Ok(Box::new(PhanesApp::new(root, cc.egui_ctx.clone())))),
     )
 }
 
@@ -218,6 +218,42 @@ fn build_tree(items: &[ListItem], root: &Path) -> Tree {
     tree
 }
 
+/// Start watching `root` for `.md` changes (F-019). The callback filters to
+/// create/modify/remove of `.md` files outside dotfolders (so the index DB under
+/// `.phanes/` never triggers a re-index loop), pings the channel, and wakes the
+/// UI via `ctx.request_repaint` (an idle egui window won't repaint just because a
+/// channel got a message). Returns the watcher (which must be kept alive) and the
+/// receiver, or `None` if setup fails — the UI then falls back to the ⟳ Scan
+/// button.
+fn start_watch(
+    root: &Path,
+    ctx: egui::Context,
+) -> Option<(notify::RecommendedWatcher, std::sync::mpsc::Receiver<()>)> {
+    use notify::{EventKind, RecursiveMode, Watcher};
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if let Ok(ev) = res {
+            let touches_note = matches!(
+                ev.kind,
+                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+            ) && ev.paths.iter().any(|p| {
+                let is_md = p.extension().is_some_and(|x| x == "md");
+                let hidden = p.components().any(|c| {
+                    matches!(c, Component::Normal(s) if s.to_string_lossy().starts_with('.'))
+                });
+                is_md && !hidden
+            });
+            if touches_note {
+                let _ = tx.send(());
+                ctx.request_repaint(); // wake the UI so poll_watch runs
+            }
+        }
+    })
+    .ok()?;
+    watcher.watch(root, RecursiveMode::Recursive).ok()?;
+    Some((watcher, rx))
+}
+
 struct PhanesApp {
     root: PathBuf,
     store: Option<Store>,
@@ -265,6 +301,11 @@ struct PhanesApp {
     switcher_index: usize,
     switcher_items: Vec<ListItem>, // snapshot of all notes, taken on open
     switcher_focus: bool,          // request text-field focus on the next frame
+    // live file-watching (F-019): watcher kept alive here; events debounced
+    #[allow(dead_code)] // held only to keep the watcher thread alive (RAII)
+    watcher: Option<notify::RecommendedWatcher>,
+    watch_rx: Option<std::sync::mpsc::Receiver<()>>,
+    watch_due: Option<std::time::Instant>, // when the debounced re-index should fire
 }
 
 /// A note's asserted tag values (the editable, file-backed set).
@@ -277,7 +318,7 @@ fn asserted_tags(idea: &Idea) -> Vec<String> {
 }
 
 impl PhanesApp {
-    fn new(root: PathBuf) -> Self {
+    fn new(root: PathBuf, ctx: egui::Context) -> Self {
         let (store, error, tree) = match Store::open(&root.join(".phanes").join("index.db")) {
             Ok(mut store) => {
                 // Index the folder on startup so the UI reflects the current
@@ -290,6 +331,11 @@ impl PhanesApp {
                 (Some(store), None, tree)
             }
             Err(e) => (None, Some(e.to_string()), Tree::default()),
+        };
+        // Live file-watching (F-019): auto re-index on external .md changes.
+        let (watcher, watch_rx) = match start_watch(&root, ctx) {
+            Some((w, rx)) => (Some(w), Some(rx)),
+            None => (None, None),
         };
         Self {
             root,
@@ -331,6 +377,48 @@ impl PhanesApp {
             switcher_index: 0,
             switcher_items: Vec::new(),
             switcher_focus: false,
+            watcher,
+            watch_rx,
+            watch_due: None,
+        }
+    }
+
+    /// Poll the file-watcher (F-019): coalesce a burst of `.md` change events into
+    /// one debounced, deterministic re-index. Skips while a background AI scan is
+    /// running, and only refreshes the UI when the index actually changed (so the
+    /// app's own saves — already indexed — cause no churn).
+    fn poll_watch(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.watch_rx else { return };
+        let mut signalled = false;
+        while rx.try_recv().is_ok() {
+            signalled = true;
+        }
+        if signalled {
+            self.watch_due =
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(500));
+        }
+        let Some(due) = self.watch_due else { return };
+        let now = std::time::Instant::now();
+        if now < due {
+            ctx.request_repaint_after(due - now); // wake up to fire the debounce
+            return;
+        }
+        if self.ai_rx.is_some() {
+            // A Scan + AI is writing the DB; retry shortly to avoid contention.
+            self.watch_due = Some(now + std::time::Duration::from_millis(500));
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+            return;
+        }
+        self.watch_due = None;
+        if let Some(store) = &mut self.store {
+            let opts = IndexOptions { enrich: false, embed: false, force: false };
+            if let Ok(report) = indexer::run(store, &self.root, &opts) {
+                if report.changed > 0 || report.pruned > 0 {
+                    self.reload_after_index();
+                    self.run_filter();
+                    self.status_msg = Some("auto-reindexed (file change)".into());
+                }
+            }
         }
     }
 
@@ -1594,10 +1682,11 @@ impl eframe::App for PhanesApp {
             self.select(id);
         }
 
-        // Background workers: AI scan + bridge proposal + ask.
+        // Background workers: AI scan + bridge proposal + ask + file-watch.
         self.poll_ai_scan(ui.ctx());
         self.poll_bridge(ui.ctx());
         self.poll_ask(ui.ctx());
+        self.poll_watch(ui.ctx());
         self.bridge_window(ui.ctx());
         self.quick_switcher(ui.ctx());
     }

@@ -42,8 +42,9 @@ reqwest       = { version = "0.12", features = ["json", "blocking"], optional = 
 # Desktop UI is opt-in. Pulls in the egui/eframe stack only under `ui`.
 eframe        = { version = "0.34", optional = true }
 egui_commonmark = { version = "0.23", optional = true }   # must track egui 0.34
+notify        = { version = "6", optional = true }         # live file-watching (F-019)
 
 [features]
 default = []
 enrich  = ["dep:reqwest"]
-ui      = ["dep:eframe", "dep:egui_commonmark"]
+ui      = ["dep:eframe", "dep:egui_commonmark", "dep:notify"]

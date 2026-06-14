@@ -258,9 +258,16 @@ proposed-tags idea — you can't keep tags consistent without seeing the vocabul
 - The UI watches the root for file create/modify/delete and re-indexes
   incrementally (deterministic, hash-gated), removing the need to press ⟳ Scan.
 - Debounced; never runs the model automatically (INV-1).
-**Status:** Candidate
-**Notes:** e.g. the `notify` crate. Matches the "always current" expectation that
-Obsidian and peers meet by default.
+**Status:** Complete (post-roadmap). `notify` recursive watcher (UI-gated dep)
+filters to `.md` create/modify/remove outside dotfolders (so `.phanes/` DB writes
+can't loop), pings a channel, and `ctx.request_repaint`s to wake an idle window.
+`poll_watch` debounces ~500 ms, skips while a Scan + AI runs, and only refreshes
+when the index actually changed (so the app's own saves cause no churn). The ⟳
+Scan button stays as a manual fallback. Live-verified (create → auto-reindex; no
+loop on DB writes).
+**Notes:** Matches the "always current" expectation Obsidian and peers meet by
+default. The watcher callback must `request_repaint` — an idle egui window won't
+repaint just because a channel got a message.
 
 ### F-020 Graph analytics — hubs and clusters
 **Priority:** Could

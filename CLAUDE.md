@@ -93,6 +93,12 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   query-time generative action under the D-015 carve-out — boundary recorded in
   D-016; never wired into the instant query paths. UI call is threaded (own read
   DB connection). `enrich::chat` is `pub(crate)` for reuse. Live-verified.
+- **Done (F-019 live file-watching):** `notify` recursive watcher (UI-only dep,
+  `start_watch`) auto re-indexes on external `.md` changes; filters to `.md`
+  outside dotfolders (no `.phanes/` loop), pings a channel + `ctx.request_repaint`
+  (an idle egui window won't wake on a channel alone — load-bearing). `poll_watch`
+  debounces ~500 ms, defers under `ai_rx`, refreshes only on changed/pruned > 0.
+  ⟳ Scan stays as manual fallback.
 - **Done (F-017 quick switcher):** `Ctrl/Cmd+P` → `quick_switcher` overlay; fuzzy
   (`fuzzy_score`, subsequence) jump to any note by title/id, ↑/↓/Enter/Esc, snapshots
   `query::list` on open, selecting reuses `select` (so it reveals in the explorer).
