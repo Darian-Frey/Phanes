@@ -310,8 +310,16 @@ far simpler.
   fusion or a weighted mix), improving recall over either alone.
 - Retrieval-time only; the vectors are index-time, so no model runs on the path
   (INV-1 holds).
-**Status:** Candidate
-**Notes:** Reor-style semantic search alongside FTS. Builds on F-002 + F-012.
+**Status:** Complete (post-roadmap). `query::hybrid` fuses (RRF) the FTS results
+with notes **semantically near the top keyword matches** — cosine over the stored
+vectors. The query is *never* embedded, so search stays offline (INV-1, the
+load-bearing reading of the acceptance). `phanes search --semantic` and a
+**Semantic** checkbox by the explorer filter; falls back to plain FTS with no
+embeddings / no hits / a metadata filter set.
+**Notes:** Not classic BM25 + dense-query retrieval — that would put a model call
+on the `search` path, which INV-1 forbids. Instead it expands recall via the
+index-time semantic graph: keyword hits seed, their neighbours fill in. For pure
+query-meaning retrieval, `near` and `ask` already exist. Builds on F-002 + F-012.
 
 ### F-022 Timeline view
 **Priority:** Could

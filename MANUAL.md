@@ -176,10 +176,15 @@ kept and the error logged.
 ```bash
 phanes --root ideas search "embedding graph" \
   --status active --tag ui --stale-days 120 --limit 10
+phanes --root ideas search "synth" --semantic    # + semantically-near notes
 ```
 
 Ranked full-text search over title, summary, and body, with highlighted
-snippets. All filters are optional.
+snippets. All filters are optional. Add `--semantic` (or tick **Semantic** by the
+explorer filter) to also surface notes *near* the keyword matches — topically
+related notes that don't contain the exact words — fused in by reciprocal-rank.
+This stays fully offline (it never sends your query to the model); it needs a
+prior `index --embed`, and ignores the metadata filters above.
 
 ### `stale` — what hasn't been touched
 

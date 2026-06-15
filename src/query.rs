@@ -2,6 +2,7 @@
 //! relationships are computed here at query time and never stored, so they
 //! cannot go stale.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -94,6 +95,94 @@ pub fn search(store: &Store, query: &str, filter: &SearchFilter) -> Result<Vec<H
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(hits)
+}
+
+/// Hybrid search (F-021): the full-text results, augmented for recall with notes
+/// **semantically near the top keyword matches** (cosine over the index-time
+/// embeddings), the two rankings fused via reciprocal-rank fusion. Fully
+/// deterministic and offline — the query is *never* embedded, so no model runs on
+/// the path (INV-1 holds). Falls back to plain FTS when there are no embeddings,
+/// no keyword hits to seed from, or a metadata filter is set (expansion would
+/// bypass it).
+pub fn hybrid(store: &Store, query: &str, filter: &SearchFilter) -> Result<Vec<Hit>> {
+    let fts = search(store, query, filter)?;
+    let filtered = filter.status.is_some() || filter.tag.is_some() || filter.stale_days.is_some();
+    if fts.is_empty() || filtered {
+        return Ok(fts);
+    }
+    let embeddings = store.all_embeddings()?;
+    if embeddings.is_empty() {
+        return Ok(fts);
+    }
+    let vmap: HashMap<&str, &Vec<f32>> =
+        embeddings.iter().map(|(id, v)| (id.as_str(), v)).collect();
+
+    // Seeds: the strongest few keyword matches that have a vector.
+    let seeds: Vec<&Vec<f32>> =
+        fts.iter().take(3).filter_map(|h| vmap.get(h.id.as_str()).copied()).collect();
+    if seeds.is_empty() {
+        return Ok(fts);
+    }
+    // Affinity = max cosine to any seed; keep the clearly-related notes.
+    let mut affinity: Vec<(&str, f32)> = embeddings
+        .iter()
+        .map(|(id, v)| (id.as_str(), seeds.iter().map(|s| cosine(s, v)).fold(0.0, f32::max)))
+        .filter(|&(_, a)| a >= 0.6)
+        .collect();
+    affinity.sort_by(|x, y| y.1.total_cmp(&x.1));
+
+    // Fuse the two rankings (FTS relevance + semantic affinity).
+    let fts_ids: Vec<&str> = fts.iter().map(|h| h.id.as_str()).collect();
+    let aff_ids: Vec<&str> = affinity.iter().map(|&(id, _)| id).collect();
+    let fused = rrf(&[&fts_ids, &aff_ids]);
+
+    // Hydrate: reuse the FTS hit (keeps its snippet) where present, else fetch.
+    let fts_by_id: HashMap<&str, &Hit> = fts.iter().map(|h| (h.id.as_str(), h)).collect();
+    let limit = if filter.limit == 0 { 20 } else { filter.limit };
+    let mut out = Vec::new();
+    for id in fused.iter().take(limit) {
+        if let Some(h) = fts_by_id.get(id.as_str()) {
+            out.push((*h).clone());
+        } else if let Some(h) = hydrate_hit(store, id)? {
+            out.push(h);
+        }
+    }
+    Ok(out)
+}
+
+/// Reciprocal-rank fusion of several ranked id lists: `score(id) = Σ 1/(60 + rank)`
+/// across the lists it appears in, highest first; ties broken by id for
+/// determinism. The standard `k = 60` damps the contribution of low ranks.
+fn rrf(lists: &[&[&str]]) -> Vec<String> {
+    let mut score: HashMap<&str, f32> = HashMap::new();
+    for list in lists {
+        for (rank, &id) in list.iter().enumerate() {
+            *score.entry(id).or_insert(0.0) += 1.0 / (60.0 + rank as f32 + 1.0);
+        }
+    }
+    let mut ranked: Vec<(&str, f32)> = score.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(b.0)));
+    ranked.into_iter().map(|(id, _)| id.to_string()).collect()
+}
+
+/// Title + status for one id, as a `Hit` tagged as a semantic (non-keyword)
+/// match. `None` if the id no longer exists.
+fn hydrate_hit(store: &Store, id: &str) -> Result<Option<Hit>> {
+    let row = store
+        .conn
+        .query_row(
+            "SELECT title, status FROM ideas WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get::<_, String>(0)?, status_from_row(r.get::<_, String>(1)?))),
+        )
+        .optional()?;
+    Ok(row.map(|(title, status)| Hit {
+        id: id.to_string(),
+        title,
+        status,
+        snippet: Some("≈ related".to_string()),
+        score: None,
+    }))
 }
 
 /// Ideas not reviewed (or, failing a date, not modified) within `days`.
@@ -836,6 +925,49 @@ mod tests {
     fn unlinked_mentions_unresolvable_is_empty() {
         let store = related_store();
         assert!(unlinked_mentions(&store, "nope").unwrap().is_empty());
+    }
+
+    #[test]
+    fn rrf_rewards_appearing_in_both_lists() {
+        // "a" tops both lists → highest fused score; b and c each appear once.
+        let l1 = ["a", "b"];
+        let l2 = ["a", "c"];
+        let fused = rrf(&[&l1[..], &l2[..]]);
+        assert_eq!(fused[0], "a");
+        assert!(fused.contains(&"b".to_string()) && fused.contains(&"c".to_string()));
+        assert_eq!(fused.len(), 3);
+    }
+
+    #[test]
+    fn hybrid_adds_semantic_neighbours_of_keyword_hits() {
+        let mut store = mem_store();
+        let today = Utc::now().date_naive();
+        // "alpha" matches the keyword; "beta" does NOT, but is semantically near
+        // alpha; "gamma" is unrelated.
+        store.upsert(&idea("alpha", "Alpha", Status::Active, &[], "a spatial canvas of nodes", today)).unwrap();
+        store.upsert(&idea("beta", "Beta", Status::Concept, &[], "panning and zooming a board", today)).unwrap();
+        store.upsert(&idea("gamma", "Gamma", Status::Concept, &[], "a rotting synth", today)).unwrap();
+        store.set_embedding("alpha", &[1.0, 0.0]).unwrap();
+        store.set_embedding("beta", &[0.97, 0.20]).unwrap(); // near alpha
+        store.set_embedding("gamma", &[0.0, 1.0]).unwrap(); // far
+
+        // Plain FTS finds only the keyword match.
+        let plain = search(&store, "canvas", &SearchFilter::default()).unwrap();
+        assert_eq!(ids(&plain), vec!["alpha"]);
+
+        // Hybrid pulls in beta (semantic neighbour) but not gamma (unrelated).
+        let hits = hybrid(&store, "canvas", &SearchFilter::default()).unwrap();
+        let got = ids(&hits);
+        assert!(got.contains(&"alpha"));
+        assert!(got.contains(&"beta"));
+        assert!(!got.contains(&"gamma"));
+    }
+
+    #[test]
+    fn hybrid_without_embeddings_is_plain_fts() {
+        let store = seed(); // no vectors
+        let hits = hybrid(&store, "canvas", &SearchFilter::default()).unwrap();
+        assert_eq!(ids(&hits), vec!["spatial-canvas"]);
     }
 
     #[test]

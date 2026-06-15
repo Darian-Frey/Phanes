@@ -7,6 +7,13 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-021 Hybrid search. `query::hybrid` augments full-text results with notes
+  semantically near the top keyword matches (cosine over the index-time vectors),
+  fused via reciprocal-rank fusion — better recall, surfacing topically-adjacent
+  notes that lack the exact keywords. `phanes search --semantic` and a **Semantic**
+  checkbox by the explorer filter. The query is never embedded, so search stays
+  fully offline/deterministic (INV-1); falls back to plain FTS with no embeddings,
+  no hits, or a metadata filter set.
 - F-026 In-app manual viewer. A `?` button in the centre toolbar (and the F1 key)
   opens the user manual rendered in the centre pane via the existing markdown
   viewer; Close / F1 dismisses it. `MANUAL.md` is embedded with `include_str!`, so

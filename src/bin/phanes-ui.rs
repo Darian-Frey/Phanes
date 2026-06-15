@@ -266,6 +266,7 @@ struct PhanesApp {
     error: Option<String>,
     tree: Tree,
     filter: String,
+    semantic_search: bool, // hybrid (FTS + semantic) filtering (F-021)
     results: Vec<query::Hit>,
     selected: Option<String>,
     selected_idea: Option<Idea>,
@@ -354,6 +355,7 @@ impl PhanesApp {
             error,
             tree,
             filter: String::new(),
+            semantic_search: false,
             results: Vec::new(),
             selected: None,
             selected_idea: None,
@@ -1074,7 +1076,9 @@ impl PhanesApp {
         self.buffer != self.saved
     }
 
-    /// Re-run the filter search (only when the filter text changes).
+    /// Re-run the filter search (only when the filter text changes). Uses hybrid
+    /// search (FTS + semantic neighbours, F-021) when the Semantic toggle is on —
+    /// still offline/deterministic, so it's fine on every keystroke.
     fn run_filter(&mut self) {
         let Some(store) = &self.store else { return };
         let q = self.filter.trim();
@@ -1082,7 +1086,11 @@ impl PhanesApp {
             Vec::new()
         } else {
             let filter = SearchFilter { limit: 200, ..Default::default() };
-            query::search(store, q, &filter).unwrap_or_default()
+            if self.semantic_search {
+                query::hybrid(store, q, &filter).unwrap_or_default()
+            } else {
+                query::search(store, q, &filter).unwrap_or_default()
+            }
         };
     }
 
@@ -1371,6 +1379,13 @@ impl eframe::App for PhanesApp {
                     filter_changed = ui
                         .add(egui::TextEdit::singleline(&mut self.filter).hint_text("filter…"))
                         .changed();
+                    if ui
+                        .checkbox(&mut self.semantic_search, "Semantic")
+                        .on_hover_text("Also surface notes near the keyword matches (needs index --embed)")
+                        .changed()
+                    {
+                        filter_changed = true; // re-rank with the new mode
+                    }
                 }
                 ui.separator();
 

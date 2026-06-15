@@ -40,6 +40,10 @@ pub enum Command {
         stale_days: Option<i64>,
         #[arg(long, default_value_t = 20)]
         limit: usize,
+        /// Also surface notes semantically near the keyword matches (offline;
+        /// needs a prior `index --embed`). Reciprocal-rank fused.
+        #[arg(long)]
+        semantic: bool,
     },
     /// List ideas not reviewed in a while.
     Stale {

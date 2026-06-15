@@ -24,14 +24,18 @@ fn main() -> Result<()> {
                 report.scanned, report.changed, report.enriched, report.embedded, report.skipped, report.pruned
             );
         }
-        Command::Search { query: q, status, tag, stale_days, limit } => {
+        Command::Search { query: q, status, tag, stale_days, limit, semantic } => {
             let filter = SearchFilter {
                 status: status.as_deref().map(|s| s.parse().unwrap_or(phanes::model::Status::Unknown)),
                 tag,
                 stale_days,
                 limit,
             };
-            let hits = query::search(&store, &q, &filter)?;
+            let hits = if semantic {
+                query::hybrid(&store, &q, &filter)?
+            } else {
+                query::search(&store, &q, &filter)?
+            };
             print_hits(&hits);
         }
         Command::Stale { days } => print_hits(&query::stale(&store, days)?),

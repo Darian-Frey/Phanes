@@ -93,6 +93,12 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   query-time generative action under the D-015 carve-out — boundary recorded in
   D-016; never wired into the instant query paths. UI call is threaded (own read
   DB connection). `enrich::chat` is `pub(crate)` for reuse. Live-verified.
+- **Done (F-021 hybrid search):** `query::hybrid` fuses (RRF, `rrf` helper) FTS
+  hits with notes semantically near the top keyword matches (cosine over stored
+  vectors). Query is never embedded → search stays offline (INV-1). `search
+  --semantic` CLI flag + a **Semantic** checkbox by the explorer filter
+  (`semantic_search`, `run_filter` switches between `search`/`hybrid`). Falls back
+  to FTS on no embeddings / no hits / a filter set.
 - **Done (F-026 in-app manual):** `MANUAL.md` embedded via `include_str!`
   (`MANUAL` const), shown in the centre pane by `egui_commonmark` behind a `?`
   button / F1 toggle (`show_manual`); read-only, not an indexed note. Ships in the

@@ -38,7 +38,7 @@ what a freeform note is actually about and how two ideas might connect.
 
 ```text
 phanes index [--enrich] [--embed] [--force]   # (re)build the index
-phanes search <query> [--status --tag --stale-days --limit]
+phanes search <query> [--status --tag --stale-days --limit --semantic]
 phanes stale [--days 180]            # what hasn't been reviewed lately
 phanes related <id|title>            # explicit links + shared-tag neighbours
 phanes near <id|title>               # semantically similar notes (needs --embed)
