@@ -265,6 +265,19 @@ Needs the `enrich` build, a server, and a prior `index --embed`. This is the one
 feature that puts the model on a question→answer path, so it is a deliberately
 separate, user-invoked mode — never wired into `search`.
 
+### `questions` — open questions across your notes *(AI)*
+
+```bash
+phanes --root ideas questions
+```
+
+Feeds your notes to the model and surfaces open questions and unexplored
+directions the collection raises — cross-pollinations, tensions, obvious next
+steps. Opt-in and generative (needs the `enrich` build + a server); the questions
+are shown, never written to files. In the desktop app, the Graph tab's
+**❓ Questions** button runs this for the focused node's cluster (or the whole
+corpus) in a floating window.
+
 ### `show` — one idea in full
 
 ```bash

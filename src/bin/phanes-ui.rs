@@ -83,6 +83,15 @@ enum BridgeState {
     Error(String),
 }
 
+/// State of an on-demand "open questions" generation for a cluster (F-024); the
+/// model call runs on a background thread so the window never freezes.
+enum QuestionsState {
+    None,
+    Asking { label: String },
+    Done { label: String, questions: Vec<String> },
+    Error(String),
+}
+
 /// State of an on-demand RAG "Ask" query (model call on a background thread).
 enum AskState {
     Idle,
@@ -296,6 +305,9 @@ struct PhanesApp {
     // model-proposed bridge (background thread + channel)
     bridge: BridgeState,
     bridge_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<String>>>,
+    // model-generated open questions for a cluster (F-024; background thread)
+    questions: QuestionsState,
+    questions_rx: Option<std::sync::mpsc::Receiver<(String, anyhow::Result<Vec<String>>)>>,
     // background "Scan + AI" worker (enrich + embed on its own DB connection)
     ai_rx: Option<std::sync::mpsc::Receiver<anyhow::Result<IndexReport>>>,
     tag_input: String, // the "add tag" field in the info panel
@@ -383,6 +395,8 @@ impl PhanesApp {
             communities: Vec::new(),
             bridge: BridgeState::None,
             bridge_rx: None,
+            questions: QuestionsState::None,
+            questions_rx: None,
             ai_rx: None,
             tag_input: String::new(),
             ask_input: String::new(),
@@ -817,6 +831,135 @@ impl PhanesApp {
             });
         if close {
             self.bridge = BridgeState::None;
+        }
+    }
+
+    /// Generate open questions (F-024) for the focused node's cluster, or the
+    /// whole corpus if nothing is selected. A user-invoked generative action
+    /// (D-015/D-016 carve-out); the model call runs on a background thread.
+    fn start_questions(&mut self) {
+        if self.questions_rx.is_some() {
+            return; // already running
+        }
+        // Decide the note set: the selected node's community, else everything.
+        let mut ids: Vec<String> = Vec::new();
+        let mut label = "the whole corpus".to_string();
+        if let (Some(sel), Some(g)) = (&self.selected, &self.graph) {
+            if let Some(si) = g.nodes.iter().position(|n| &n.id == sel) {
+                if let Some(com) = self.communities.get(si).copied() {
+                    ids = g
+                        .nodes
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| self.communities.get(*i).copied() == Some(com))
+                        .map(|(_, n)| n.id.clone())
+                        .collect();
+                    label = format!("this cluster ({} notes)", ids.len());
+                }
+            }
+        }
+        if ids.is_empty() {
+            ids = self
+                .store
+                .as_ref()
+                .map(|s| query::list(s).unwrap_or_default().into_iter().map(|i| i.id).collect())
+                .unwrap_or_default();
+            label = format!("the whole corpus ({} notes)", ids.len());
+        }
+        // Gather (title, summary) for context.
+        let notes: Vec<(String, String)> = self
+            .store
+            .as_ref()
+            .map(|s| {
+                ids.iter()
+                    .filter_map(|id| query::get(s, id).ok().flatten())
+                    .map(|i| (i.title, i.summary.map(|x| x.value).unwrap_or_default()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if notes.is_empty() {
+            return;
+        }
+
+        self.questions = QuestionsState::Asking { label: label.clone() };
+        #[cfg(feature = "enrich")]
+        {
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.questions_rx = Some(rx);
+            std::thread::spawn(move || {
+                let _ = tx.send((label, phanes::enrich::propose_questions(&notes)));
+            });
+        }
+        #[cfg(not(feature = "enrich"))]
+        {
+            let _ = notes;
+            self.questions =
+                QuestionsState::Error("rebuild with `--features ui,enrich` to generate questions".into());
+        }
+    }
+
+    /// Poll the background questions worker; transition state when it finishes.
+    fn poll_questions(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.questions_rx else { return };
+        match rx.try_recv() {
+            Ok((label, result)) => {
+                self.questions_rx = None;
+                self.questions = match result {
+                    Ok(questions) => QuestionsState::Done { label, questions },
+                    Err(e) => QuestionsState::Error(format!("questions failed: {e}")),
+                };
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.questions_rx = None;
+                self.questions = QuestionsState::Error("questions worker stopped unexpectedly".into());
+            }
+        }
+    }
+
+    /// Floating window showing the in-progress / finished open questions.
+    fn questions_window(&mut self, ctx: &egui::Context) {
+        if matches!(self.questions, QuestionsState::None) {
+            return;
+        }
+        let mut close = false;
+        egui::Window::new("Open questions")
+            .collapsible(false)
+            .resizable(true)
+            .default_width(440.0)
+            .show(ctx, |ui| {
+                match &self.questions {
+                    QuestionsState::Asking { label } => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(format!("Generating questions for {label}…"));
+                        });
+                    }
+                    QuestionsState::Done { label, questions } => {
+                        ui.weak(format!("Open questions across {label}:"));
+                        ui.separator();
+                        egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                            for q in questions {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label("•");
+                                    ui.label(q);
+                                });
+                                ui.add_space(4.0);
+                            }
+                        });
+                    }
+                    QuestionsState::Error(msg) => {
+                        ui.colored_label(egui::Color32::from_rgb(235, 140, 90), msg.as_str());
+                    }
+                    QuestionsState::None => {}
+                }
+                ui.separator();
+                if ui.button("Close").clicked() {
+                    close = true;
+                }
+            });
+        if close {
+            self.questions = QuestionsState::None;
         }
     }
 
@@ -1791,6 +1934,7 @@ impl eframe::App for PhanesApp {
             let mut save_requested = false;
             let mut action: Option<GraphAction> = None;
             let mut ask_select: Option<String> = None;
+            let mut gen_questions = false;
 
             // F1 toggles the manual.
             if ui.input(|i| i.key_pressed(egui::Key::F1)) {
@@ -1811,7 +1955,7 @@ impl eframe::App for PhanesApp {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     CommonMarkViewer::new().show(ui, &mut self.md_cache, MANUAL);
                 });
-                return (save_requested, action, ask_select);
+                return (save_requested, action, ask_select, gen_questions);
             }
 
             ui.horizontal(|ui| {
@@ -1837,6 +1981,16 @@ impl eframe::App for PhanesApp {
                             .on_hover_text("Highlight orphans and candidate bridges");
                         ui.checkbox(&mut self.show_clusters, "Clusters")
                             .on_hover_text("Colour nodes by topical cluster; size by centrality (hubs bigger)");
+                        if ui
+                            .button("❓ Questions")
+                            .on_hover_text(
+                                "Generate open questions for the selected node's cluster \
+                                 (or the whole corpus) — needs the enrich build + a server",
+                            )
+                            .clicked()
+                        {
+                            gen_questions = true;
+                        }
                         ui.separator();
                         if self.show_gaps {
                             ui.weak("drag a node · click a dashed bridge to propose an idea");
@@ -1894,9 +2048,9 @@ impl eframe::App for PhanesApp {
                     save_requested = true;
                 }
             }
-            (save_requested, action, ask_select)
+            (save_requested, action, ask_select, gen_questions)
         });
-        let (save_requested, action, ask_select) = central.inner;
+        let (save_requested, action, ask_select, gen_questions) = central.inner;
         if save_requested && self.dirty() {
             self.save();
         }
@@ -1909,13 +2063,18 @@ impl eframe::App for PhanesApp {
         if let Some(id) = ask_select {
             self.select(id);
         }
+        if gen_questions {
+            self.start_questions();
+        }
 
         // Background workers: AI scan + bridge proposal + ask + file-watch.
         self.poll_ai_scan(ui.ctx());
         self.poll_bridge(ui.ctx());
+        self.poll_questions(ui.ctx());
         self.poll_ask(ui.ctx());
         self.poll_watch(ui.ctx());
         self.bridge_window(ui.ctx());
+        self.questions_window(ui.ctx());
         self.quick_switcher(ui.ctx());
     }
 }

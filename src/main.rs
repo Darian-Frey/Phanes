@@ -58,6 +58,7 @@ fn main() -> Result<()> {
         Command::Tags => print_tags(&query::tag_index(&store)?),
         Command::Timeline => print_timeline(&query::timeline(&store)?),
         Command::Ask { question } => ask_cli(&store, &question),
+        Command::Questions => questions_cli(&store),
         Command::Show { id_or_title } => match query::resolve(&store, &id_or_title)? {
             Some(id) => {
                 let idea = query::get(&store, &id)?.expect("a resolved id always exists");
@@ -250,6 +251,42 @@ fn ask_cli(store: &Store, question: &str) {
     {
         let _ = (store, question);
         println!("(build with --features enrich, run a model server, and `index --embed` to ask)\n");
+    }
+}
+
+/// Generate open questions across the whole corpus (F-024). A user-invoked
+/// generative action under the D-015/D-016 carve-out; gated on the `enrich`
+/// feature and graceful on failure.
+fn questions_cli(store: &Store) {
+    #[cfg(feature = "enrich")]
+    {
+        let notes: Vec<(String, String)> = match query::list(store) {
+            Ok(items) => items
+                .into_iter()
+                .filter_map(|i| query::get(store, &i.id).ok().flatten())
+                .map(|i| (i.title, i.summary.map(|s| s.value).unwrap_or_default()))
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        if notes.is_empty() {
+            println!("(no notes to draw questions from)\n");
+            return;
+        }
+        match phanes::enrich::propose_questions(&notes) {
+            Ok(qs) => {
+                println!("\nOpen questions:");
+                for q in qs {
+                    println!("  • {q}");
+                }
+                println!();
+            }
+            Err(e) => println!("questions failed: {e}\n"),
+        }
+    }
+    #[cfg(not(feature = "enrich"))]
+    {
+        let _ = store;
+        println!("(build with --features enrich and run a model server to generate questions)\n");
     }
 }
 

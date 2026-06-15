@@ -114,6 +114,12 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   (`MANUAL` const), shown in the centre pane by `egui_commonmark` behind a `?`
   button / F1 toggle (`show_manual`); read-only, not an indexed note. Ships in the
   AppImage with no runtime file dependency.
+- **Done (F-024 open questions):** `enrich::propose_questions(notes)` (freeform,
+  newline-split) generates open questions for a cluster. `phanes questions` (whole
+  corpus) + a Graph-tab **❓ Questions** button → `start_questions` (focused node's
+  community via `self.communities`, else whole corpus), threaded
+  (`QuestionsState`/`questions_rx`, floating `questions_window`). Third query-time
+  generative action (bridge/ask/questions) under D-015/D-016; never written to files.
 - **Done (F-023 auto-classify):** enrichment proposes a coarse **category** (kind
   of note) per note. New `Idea.category`/`Enrichment.category` (proposed), stored in
   `ideas.category`/`category_source` (added via an `ALTER TABLE` migration in

@@ -7,6 +7,14 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-024 Generated open questions. `enrich::propose_questions` feeds a cluster's
+  note titles + summaries to the model and returns open questions / unexplored
+  directions. `phanes questions` runs it over the whole corpus; the Graph tab's
+  **❓ Questions** button runs it for the focused node's cluster (or the whole
+  corpus) on a background thread, shown in a floating window. The third query-time
+  generative action (after bridge, ask) under the D-015/D-016 carve-out — never on
+  an instant path; questions are displayed, never written to files. Graceful on
+  failure (INV-4).
 - F-023 Auto-classify. Enrichment now also proposes a single coarse **category**
   per note (the kind of note — developer-tool, research, creative, spec…), a new
   proposed field stored in the `ideas` table (`category`/`category_source`, added

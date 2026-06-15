@@ -47,6 +47,7 @@ phanes tags                          # the tag vocabulary with counts
 phanes timeline                      # notes by date, newest first
 phanes bridge <a> <b>                # propose an idea connecting two notes (AI)
 phanes ask "<question>"              # answer a question from your notes (RAG, AI)
+phanes questions                     # generate open questions across your notes (AI)
 phanes show <id|title>               # one idea, with provenance and relationships
 phanes new <title> [--tag ...]       # capture a new note, frontmatter pre-filled
 ```

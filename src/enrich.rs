@@ -192,6 +192,34 @@ pub fn propose_bridge(a_title: &str, a_body: &str, b_title: &str, b_body: &str) 
     Ok(chat(BRIDGE_SYSTEM, &user, None, 220)?.trim().to_string())
 }
 
+const QUESTIONS_SYSTEM: &str = "You help a thinker find the gaps in their idea \
+    collection. Given a cluster of related project-idea notes, surface the most \
+    interesting OPEN QUESTIONS and unexplored directions the cluster raises — \
+    things the notes gesture at but don't resolve, tensions between them, or \
+    obvious next steps nobody has taken. Be specific and provocative, not generic. \
+    Return 3-6 questions, one per line, no preamble or numbering.";
+
+/// Generate open questions for a cluster of related notes (each `(title, summary
+/// or excerpt)`). **On-demand / user-invoked** — the D-015/D-016 carve-out, not an
+/// instant query path (F-024). Returns one question per item; `Err` on failure.
+pub fn propose_questions(notes: &[(String, String)]) -> Result<Vec<String>> {
+    let context = notes
+        .iter()
+        .take(30)
+        .map(|(t, s)| format!("- {t}: {}", truncate(s, 280)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let user = format!(
+        "Cluster of related notes:\n\n{context}\n\nWhat open questions or unexplored directions does this cluster raise?"
+    );
+    let text = chat(QUESTIONS_SYSTEM, &user, None, 400)?;
+    Ok(text
+        .lines()
+        .map(|l| l.trim().trim_start_matches(['-', '*', '•', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', ')', ' ']).trim().to_string())
+        .filter(|l| l.len() > 1)
+        .collect())
+}
+
 /// Truncate to at most `max` bytes on a char boundary.
 fn truncate(text: &str, max: usize) -> &str {
     if text.len() <= max {

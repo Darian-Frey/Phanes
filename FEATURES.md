@@ -362,9 +362,15 @@ required; `Enrichment.category` has `#[serde(default)]` for older replies.
   prompts (not written to files).
 - An explicit generative action under the D-015/D-016 carve-out; graceful on
   failure (INV-4).
-**Status:** Candidate
+**Status:** Complete (post-roadmap). `enrich::propose_questions` feeds a cluster's
+note titles + summaries to the model and returns open questions. `phanes questions`
+runs it over the whole corpus; the Graph tab's **❓ Questions** button runs it for
+the focused node's cluster (or the whole corpus), on a background thread with a
+floating result window. The third query-time generative action (after bridge,
+ask) — never on an instant path; questions are shown, never written to files.
 **Notes:** Extends bridges (F-013) from "connect two notes" to "what's missing in a
 region." InfraNodus frames structural gaps as "potential for new ideas."
+Live-verified: surfaced cross-pollination questions across the corpus.
 
 ### F-025 Left panel: Files view alongside Ideas view
 **Priority:** Should
