@@ -327,8 +327,10 @@ A tab bar selects what the centre pane shows:
   the file and re-indexes that one note (deterministically — no model on save).
 - **Graph** — a force-directed map of the relationship layer (links + shared
   tags + semantic edges), status-tinted. Scroll to zoom, drag to pan, drag a
-  node to rearrange (neighbours spring along, then settle), click a node to
-  select it. The **Gaps** toggle overlays orphans (ringed) and the top candidate
+  node to rearrange (neighbours spring along, then settle). **Left-click** a node
+  to open it (leaves the graph); **right-click** to *inspect* it in place —
+  highlights the node, lights up its connections, labels its neighbours, and shows
+  its info on the right without opening the file. The **Gaps** toggle overlays orphans (ringed) and the top candidate
   bridges (dashed). With the `enrich` build, clicking a dashed bridge asks the
   model to propose a connecting idea (shown in a floating window; runs on a
   background thread). The **Clusters** toggle colours nodes by topical cluster

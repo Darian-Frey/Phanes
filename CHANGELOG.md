@@ -7,6 +7,14 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- Graph: **right-click a node to inspect it** (refines F-013/F-020). Right-click
+  focuses the node — highlights it, lights up its edges, rings and labels its
+  direct neighbours, and loads its info into the right panel — *without* leaving
+  the graph or opening the file in the centre. Left-click still opens the note.
+  The focus highlight is cool cyan, deliberately distinct from the Gaps overlay's
+  warm gold, so the two read clearly when both are on.
+- The right **info panel is now scrollable**, so long relationship lists
+  (related / backlinks / unlinked mentions / near) no longer run off the bottom.
 - Taxonomy-aware proposed tags (refines F-008). At enrichment time the existing
   tag vocabulary (`query::tag_vocabulary`, most-used first) is fed to the model so
   proposed tags reuse it instead of inventing synonyms — curbing the singleton-tag

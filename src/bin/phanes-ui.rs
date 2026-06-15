@@ -69,7 +69,8 @@ enum Mode {
 
 /// What a click on the graph canvas resolved to.
 enum GraphAction {
-    Select(String),
+    Select(String),           // left-click: open the note (leaves the graph)
+    Inspect(String),          // right-click: focus the node + show its info, stay in the graph
     Bridge(String, String),
 }
 
@@ -960,10 +961,43 @@ impl PhanesApp {
             self.pinned = None;
         }
 
+        // The focused node (if any) and its direct neighbours, so we can light up
+        // its connections (right-click "inspect").
+        let sel_idx = self
+            .selected
+            .as_deref()
+            .and_then(|id| g.nodes.iter().position(|n| n.id == id));
+        let neighbours: std::collections::HashSet<usize> = match sel_idx {
+            Some(s) => g
+                .edges
+                .iter()
+                .filter_map(|e| {
+                    if e.a == s {
+                        Some(e.b)
+                    } else if e.b == s {
+                        Some(e.a)
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            None => std::collections::HashSet::new(),
+        };
+        // Cool cyan, deliberately distinct from the warm gold of the Gaps overlay
+        // (PROPOSED) so an inspected node's connections don't blend into the
+        // dashed candidate bridges when both are shown.
+        const FOCUS: egui::Color32 = egui::Color32::from_rgb(150, 225, 245);
+
         for e in &g.edges {
+            let incident = Some(e.a) == sel_idx || Some(e.b) == sel_idx;
+            let stroke = if incident {
+                egui::Stroke::new(2.2, FOCUS) // a connection of the focused node
+            } else {
+                egui::Stroke::new(1.0, edge_color(e.kind, e.weight))
+            };
             painter.line_segment(
                 [to_screen(self.layout[e.a]), to_screen(self.layout[e.b])],
-                egui::Stroke::new(1.0, edge_color(e.kind, e.weight)),
+                stroke,
             );
         }
 
@@ -971,7 +1005,7 @@ impl PhanesApp {
 
         for (i, node) in g.nodes.iter().enumerate() {
             let p = to_screen(self.layout[i]);
-            let sel = self.selected.as_deref() == Some(node.id.as_str());
+            let sel = Some(i) == sel_idx;
             // Size by centrality (hubs bigger); colour by cluster when toggled.
             let c = self.centrality.get(i).copied().unwrap_or(0.0);
             let base = 5.0 + 7.0 * c;
@@ -984,12 +1018,16 @@ impl PhanesApp {
             painter.circle_filled(p, r, fill);
             if sel {
                 painter.circle_stroke(p, r + 2.5, egui::Stroke::new(2.0, egui::Color32::WHITE));
+            } else if neighbours.contains(&i) {
+                painter.circle_stroke(p, r + 2.0, egui::Stroke::new(1.8, FOCUS));
             }
         }
 
-        // labels for the selected and hovered nodes only (keeps it legible)
-        if let Some(sel) = &self.selected {
-            if let Some(i) = g.nodes.iter().position(|n| &n.id == sel) {
+        // Labels: the focused node + its neighbours (so its connections are
+        // legible), plus whatever's hovered.
+        if let Some(s) = sel_idx {
+            draw_label(&painter, to_screen(self.layout[s]), &g.nodes[s].title);
+            for &i in &neighbours {
                 draw_label(&painter, to_screen(self.layout[i]), &g.nodes[i].title);
             }
         }
@@ -1048,6 +1086,13 @@ impl PhanesApp {
             ui.ctx().request_repaint();
         }
 
+        // Right-click: inspect the node in place (focus it, show its info), without
+        // leaving the graph or opening the file.
+        if resp.secondary_clicked() {
+            if let Some(i) = hovered {
+                return Some(GraphAction::Inspect(g.nodes[i].id.clone()));
+            }
+        }
         if resp.clicked() {
             if let Some(i) = hovered {
                 return Some(GraphAction::Select(g.nodes[i].id.clone()));
@@ -1122,6 +1167,16 @@ impl PhanesApp {
         self.mode = Mode::View;
         self.status_msg = None;
         self.reveal_selected = true; // expand+scroll the explorer to it next render
+    }
+
+    /// Focus a node from the graph without leaving it (right-click): load the
+    /// note's info into the right panel and highlight it + its connections, but
+    /// keep the current view (don't open the file in the centre). Same loading as
+    /// `select`, just preserving the mode.
+    fn inspect(&mut self, id: String) {
+        let keep = self.mode;
+        self.select(id);
+        self.mode = keep;
     }
 
     /// Open a file picked from the **Files** view. If it's an indexed note, this is
@@ -1480,6 +1535,7 @@ impl eframe::App for PhanesApp {
                 let mut new_status = None;
                 let mut new_tags: Option<Vec<String>> = None;
                 let mut mention_accept: Option<query::Hit> = None;
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 match &self.selected_idea {
                     None => {
                         ui.weak("(select a note)");
@@ -1659,6 +1715,7 @@ impl eframe::App for PhanesApp {
                         }
                     }
                 }
+                });
                 (clicked, new_status, new_tags, mention_accept)
             });
         let (clicked, new_status, new_tags, mention_accept) = right.inner;
@@ -1732,7 +1789,7 @@ impl eframe::App for PhanesApp {
                         } else if self.show_clusters {
                             ui.weak("colour = cluster · size = hub centrality");
                         } else {
-                            ui.weak("scroll = zoom · drag = pan · click a node");
+                            ui.weak("scroll = zoom · drag = pan · click = open · right-click = inspect");
                         }
                     }
                     Mode::Ask => {
@@ -1791,6 +1848,7 @@ impl eframe::App for PhanesApp {
         }
         match action {
             Some(GraphAction::Select(id)) => self.select(id),
+            Some(GraphAction::Inspect(id)) => self.inspect(id),
             Some(GraphAction::Bridge(a, b)) => self.start_bridge(&a, &b),
             None => {}
         }

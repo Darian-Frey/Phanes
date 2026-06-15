@@ -76,7 +76,9 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   `phanes gaps` lists orphans + candidate bridges; the UI `Graph` tab is a
   hand-rolled force-directed view (D-014 — no egui_graphs/petgraph) with a
   "Gaps" overlay (orphans + dashed candidate bridges) and a collision force for
-  even spacing.
+  even spacing. Left-click a node opens it; **right-click** inspects it in place
+  (`GraphAction::Inspect` → `inspect()` = `select` but keep the mode; highlights
+  the node, its incident edges, and neighbour rings/labels).
 - **Done (model-proposed bridges):** `enrich::propose_bridge` + the `bridge a b`
   command generate an idea connecting two notes — the first query-time model use,
   an explicit opt-in generative action (D-015, INV-1 carve-out). Also invocable by
