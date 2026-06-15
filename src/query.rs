@@ -483,6 +483,19 @@ pub fn near(store: &Store, id_or_title: &str, limit: usize) -> Result<Vec<Hit>> 
     Ok(out)
 }
 
+/// The tag vocabulary as a flat list, most-used first, capped at `limit`. Fed to
+/// the enrichment model so proposed tags reuse the established vocabulary instead
+/// of inventing synonyms (taxonomy-aware tags). Deterministic.
+pub fn tag_vocabulary(store: &Store, limit: usize) -> Result<Vec<String>> {
+    let mut stmt = store
+        .conn
+        .prepare("SELECT tag FROM tags GROUP BY tag ORDER BY COUNT(*) DESC, tag LIMIT ?1")?;
+    let tags = stmt
+        .query_map(params![limit as i64], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(tags)
+}
+
 /// One tag and the notes carrying it, split by provenance — the unit of the tag
 /// browser (F-018).
 #[derive(Debug, Clone)]
@@ -968,6 +981,17 @@ mod tests {
         let store = seed(); // no vectors
         let hits = hybrid(&store, "canvas", &SearchFilter::default()).unwrap();
         assert_eq!(ids(&hits), vec!["spatial-canvas"]);
+    }
+
+    #[test]
+    fn tag_vocabulary_is_distinct_and_by_use() {
+        let mut store = mem_store();
+        let today = Utc::now().date_naive();
+        store.upsert(&idea("a", "A", Status::Active, &["ui", "spatial"], "x", today)).unwrap();
+        store.upsert(&idea("b", "B", Status::Concept, &["ui"], "y", today)).unwrap();
+        // "ui" used twice → first; distinct (no dupes); capping works.
+        assert_eq!(tag_vocabulary(&store, 10).unwrap(), vec!["ui", "spatial"]);
+        assert_eq!(tag_vocabulary(&store, 1).unwrap(), vec!["ui"]);
     }
 
     #[test]

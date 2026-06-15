@@ -67,6 +67,10 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   notes, shown via the `near` command and the UI's "Near (semantic)" panel. Both
   live-verified against LM Studio. Run e.g.
   `cargo run --features enrich -- index --root ideas --enrich --embed --force`.
+  **Taxonomy-aware tags** (refines F-008): `indexer::run` snapshots
+  `query::tag_vocabulary(store, 80)` once per pass and passes it to
+  `enrich::enrich(title, body, &vocab)`, which appends it to the prompt so proposed
+  tags reuse the vocabulary. `--force` re-enriches all to consolidate.
 - **Done (F-013):** relationship graph + gap analysis. `graph.rs` builds/analyses
   the graph (links + shared tags + semantic edges; components/orphans/bridges);
   `phanes gaps` lists orphans + candidate bridges; the UI `Graph` tab is a

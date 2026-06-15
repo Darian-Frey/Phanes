@@ -7,6 +7,12 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- Taxonomy-aware proposed tags (refines F-008). At enrichment time the existing
+  tag vocabulary (`query::tag_vocabulary`, most-used first) is fed to the model so
+  proposed tags reuse it instead of inventing synonyms — curbing the singleton-tag
+  sprawl the tag browser (F-018) exposed. Snapshotted once per pass; converges over
+  runs, and `index --enrich --force` re-enriches the whole corpus to consolidate.
+  Still index-time only (INV-1); proposed, never overwriting asserted (INV-2).
 - F-021 Hybrid search. `query::hybrid` augments full-text results with notes
   semantically near the top keyword matches (cosine over the index-time vectors),
   fused via reciprocal-rank fusion — better recall, surfacing topically-adjacent

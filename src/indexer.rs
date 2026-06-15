@@ -45,6 +45,17 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
     let mut report = IndexReport::default();
     let mut seen = Vec::new();
 
+    // The established tag vocabulary, fed to the model so proposed tags reuse it
+    // rather than inventing synonyms (taxonomy-aware tags). Snapshotted once;
+    // new tags converge over runs (and a `--force` pass re-enriches with the
+    // full vocabulary). Empty on a never-indexed corpus.
+    #[cfg(feature = "enrich")]
+    let vocabulary: Vec<String> = if opts.enrich {
+        crate::query::tag_vocabulary(store, 80).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     for entry in WalkDir::new(root)
         .into_iter()
         .filter_map(Result::ok)
@@ -104,7 +115,7 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
         // never clobber asserted ones — see merge rules below.
         if opts.enrich {
             #[cfg(feature = "enrich")]
-            match crate::enrich::enrich(&idea.title, &idea.body) {
+            match crate::enrich::enrich(&idea.title, &idea.body, &vocabulary) {
                 Ok(e) => {
                     merge_proposed(&mut idea, e);
                     report.enriched += 1;
@@ -135,7 +146,7 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
             let Some(mut idea) = crate::query::get(store, id)? else {
                 continue;
             };
-            match crate::enrich::enrich(&idea.title, &idea.body) {
+            match crate::enrich::enrich(&idea.title, &idea.body, &vocabulary) {
                 Ok(e) => {
                     merge_proposed(&mut idea, e);
                     store.upsert(&idea)?;

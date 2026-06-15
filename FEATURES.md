@@ -95,8 +95,12 @@ to Concept (D-011). Generator lives in `scaffold.rs`, round-trips through `parse
   proposed summary, tags, topics, and status guess from a local llama-server,
   grammar-constrained to valid JSON.
 - A missing, slow, or malformed response never fails an index pass (INV-4).
-**Status:** Complete (Phase 3) — OpenAI-compatible client (D-012); live-verified against LM Studio (qwen2.5-7b-instruct) producing proposed summary/tags/topics, with INV-1/2/4 all holding
-**Notes:** Related: D-001, D-002, D-007, D-012.
+- **Taxonomy-aware tags:** the existing tag vocabulary (`query::tag_vocabulary`)
+  is fed to the model so proposed tags reuse it instead of inventing synonyms.
+**Status:** Complete (Phase 3) — OpenAI-compatible client (D-012); live-verified against LM Studio (qwen2.5-7b-instruct) producing proposed summary/tags/topics, with INV-1/2/4 all holding. Taxonomy-aware tags added 2026-06-15.
+**Notes:** Related: D-001, D-002, D-007, D-012. The vocabulary is snapshotted once
+per pass; new tags converge over runs, and `index --enrich --force` re-enriches
+the whole corpus with the full vocabulary to consolidate a sprawling taxonomy.
 
 ### F-009 Three-panel desktop UI
 **Priority:** Should
@@ -377,9 +381,9 @@ invalidated on every re-index.
 ### Fits the index-time / proposed model (queries stay instant + offline)
 
 - ~~Semantic "near this"~~ — **shipped as F-012.**
-- **Taxonomy-aware proposed tags.** Feed the model the existing asserted-tag
-  vocabulary so proposed tags stay consistent rather than inventing synonyms.
-  Refinement of F-008.
+- ~~**Taxonomy-aware proposed tags.**~~ — **shipped** (refinement of F-008, 2026-06-15):
+  the existing tag vocabulary is fed to the model so proposed tags reuse it rather
+  than inventing synonyms.
 - **Propose → accept links.** Suggested links (from the model or embeddings) show
   as *proposed*; one action promotes a link to *asserted* and writes it to the
   file. Uses the provenance core directly (INV-2) — the Phanes-specific angle no

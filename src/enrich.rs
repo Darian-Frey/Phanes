@@ -29,7 +29,9 @@ const DEFAULT_MODEL: &str = "local-model";
 const SYSTEM_PROMPT: &str = "You catalogue project-idea notes. Read the note and \
     return JSON only, matching the schema. summary: one plain sentence describing \
     what the note is about. status: one of the allowed values. tags: 2-6 short \
-    lowercase keywords. topics: 1-4 broader concept areas.";
+    lowercase keywords — reuse the existing tags listed at the end of the note \
+    when they fit, and only coin a new tag when none applies. topics: 1-4 broader \
+    concept areas.";
 
 fn endpoint() -> String {
     std::env::var("PHANES_LLM_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
@@ -70,8 +72,10 @@ fn response_format() -> serde_json::Value {
 }
 
 /// The note as the user turn. Long bodies are truncated on a char boundary — the
-/// first ~6k chars carry the gist of an idea note.
-fn user_message(title: &str, body: &str) -> String {
+/// first ~6k chars carry the gist of an idea note. When a `vocabulary` is given
+/// (the collection's existing tags), it's appended so the model can reuse it
+/// rather than inventing synonyms (taxonomy-aware tags).
+fn user_message(title: &str, body: &str, vocabulary: &[String]) -> String {
     let body = if body.len() > 6000 {
         let mut end = 6000;
         while !body.is_char_boundary(end) {
@@ -81,7 +85,14 @@ fn user_message(title: &str, body: &str) -> String {
     } else {
         body
     };
-    format!("# {title}\n{body}")
+    let mut msg = format!("# {title}\n{body}");
+    if !vocabulary.is_empty() {
+        msg.push_str(&format!(
+            "\n\nExisting tags (reuse where they fit; only add a new tag when none applies): {}",
+            vocabulary.join(", ")
+        ));
+    }
+    msg
 }
 
 /// One chat-completion round trip; returns the assistant message content.
@@ -152,10 +163,13 @@ pub(crate) fn post_json(url: &str, payload: &serde_json::Value) -> Result<serde_
     Err(last.unwrap_or_else(|| anyhow::anyhow!("model request failed")))
 }
 
-/// Run extraction against the local model. Returns `Err` on any transport or
-/// parse failure so the caller can fall back to an asserted-only record (INV-4).
-pub fn enrich(title: &str, body: &str) -> Result<Enrichment> {
-    let content = chat(SYSTEM_PROMPT, &user_message(title, body), Some(response_format()), 400)?;
+/// Run extraction against the local model. `vocabulary` is the collection's
+/// existing tags (pass `&[]` for none) so proposed tags reuse it rather than
+/// inventing synonyms. Returns `Err` on any transport or parse failure so the
+/// caller can fall back to an asserted-only record (INV-4).
+pub fn enrich(title: &str, body: &str, vocabulary: &[String]) -> Result<Enrichment> {
+    let content =
+        chat(SYSTEM_PROMPT, &user_message(title, body, vocabulary), Some(response_format()), 400)?;
     parse_enrichment(&content)
 }
 
@@ -230,7 +244,17 @@ mod tests {
     #[test]
     fn user_message_truncates_on_char_boundary() {
         let body = "é".repeat(5000); // 10k bytes, multibyte
-        let msg = user_message("T", &body);
+        let msg = user_message("T", &body, &[]);
         assert!(msg.is_char_boundary(msg.len())); // didn't panic / split a char
+    }
+
+    #[test]
+    fn user_message_appends_vocabulary_when_present() {
+        let vocab = vec!["ui".to_string(), "spatial".to_string()];
+        let msg = user_message("T", "body", &vocab);
+        assert!(msg.contains("Existing tags"));
+        assert!(msg.contains("ui, spatial"));
+        // …and omits the section entirely when empty
+        assert!(!user_message("T", "body", &[]).contains("Existing tags"));
     }
 }
