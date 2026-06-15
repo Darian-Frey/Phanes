@@ -56,6 +56,7 @@ fn main() -> Result<()> {
             }
         }
         Command::Tags => print_tags(&query::tag_index(&store)?),
+        Command::Timeline => print_timeline(&query::timeline(&store)?),
         Command::Ask { question } => ask_cli(&store, &question),
         Command::Show { id_or_title } => match query::resolve(&store, &id_or_title)? {
             Some(id) => {
@@ -247,6 +248,30 @@ fn ask_cli(store: &Store, question: &str) {
         let _ = (store, question);
         println!("(build with --features enrich, run a model server, and `index --embed` to ask)\n");
     }
+}
+
+/// Print notes chronologically, newest first, grouped by month (F-022).
+fn print_timeline(entries: &[phanes::query::TimelineEntry]) {
+    if entries.is_empty() {
+        println!("\n(no notes)\n");
+        return;
+    }
+    println!();
+    let mut month = String::new();
+    for e in entries {
+        let m = e.date.format("%Y-%m").to_string();
+        if m != month {
+            println!("{m}");
+            month = m;
+        }
+        println!(
+            "  {}  {}  {}",
+            e.date.format("%d"),
+            tint_status(e.status),
+            e.title
+        );
+    }
+    println!();
 }
 
 /// Print the tag vocabulary with per-tag counts (asserted, plus proposed if any).

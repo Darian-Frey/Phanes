@@ -18,6 +18,11 @@ that must not drift.
   asserted; model output is proposed. `indexer::merge_proposed` already enforces
   the merge rules — proposed only fills gaps. `store::upsert` writes the
   `*_source` columns (done); still surface the flag in `show` output.
+  **A deterministic re-index must never destroy proposed data** (BUG-003):
+  `indexer::preserve_proposed` carries existing proposed summary/tags/topics
+  forward on a non-enrich pass, and the embedding is no longer cleared — so
+  editing a note (status, typo) keeps its enrichment until `--enrich`/`--force`
+  refreshes it. Don't reintroduce a wipe.
 - **INV-3 — Relationships are computed, not stored** (except explicit links).
   Shared-tag neighbours come from a JOIN at query time so they cannot go stale.
   Only the `links` table is persisted.
@@ -109,6 +114,10 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   (`MANUAL` const), shown in the centre pane by `egui_commonmark` behind a `?`
   button / F1 toggle (`show_manual`); read-only, not an indexed note. Ships in the
   AppImage with no runtime file dependency.
+- **Done (F-022 timeline):** `query::timeline` (notes by effective date — the
+  `stale` COALESCE — newest first). Left explorer **Timeline** view (4th toggle),
+  grouped by month; `phanes timeline` CLI. Lazy (`timeline` field), invalidated on
+  reload. Deterministic (INV-3).
 - **Done (F-018 tag browser):** `query::tag_index` (every tag → asserted/proposed
   counts + its notes, sorted by use). Left explorer has a **Tags** view (third
   toggle): collapsing header per tag (`tag · total (~proposed)`) → its notes.

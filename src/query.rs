@@ -483,6 +483,43 @@ pub fn near(store: &Store, id_or_title: &str, limit: usize) -> Result<Vec<Hit>> 
     Ok(out)
 }
 
+/// One note on the timeline (F-022): its effective date — `last_reviewed`, or the
+/// modified date when there's no review date (same rule as [`stale`]).
+#[derive(Debug, Clone)]
+pub struct TimelineEntry {
+    pub id: String,
+    pub title: String,
+    pub status: Status,
+    pub date: NaiveDate,
+}
+
+/// Every note ordered by effective date, newest first — the chronological view
+/// (F-022), the dual of [`stale`]. Deterministic.
+pub fn timeline(store: &Store) -> Result<Vec<TimelineEntry>> {
+    let mut stmt = store.conn.prepare(
+        "SELECT id, title, status, COALESCE(last_reviewed, date(mtime)) AS d \
+           FROM ideas ORDER BY d DESC, title",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                status_from_row(r.get::<_, String>(2)?),
+                r.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id, title, status, d)| {
+            NaiveDate::parse_from_str(&d, "%Y-%m-%d")
+                .ok()
+                .map(|date| TimelineEntry { id, title, status, date })
+        })
+        .collect())
+}
+
 /// The tag vocabulary as a flat list, most-used first, capped at `limit`. Fed to
 /// the enrichment model so proposed tags reuse the established vocabulary instead
 /// of inventing synonyms (taxonomy-aware tags). Deterministic.
@@ -981,6 +1018,20 @@ mod tests {
         let store = seed(); // no vectors
         let hits = hybrid(&store, "canvas", &SearchFilter::default()).unwrap();
         assert_eq!(ids(&hits), vec!["spatial-canvas"]);
+    }
+
+    #[test]
+    fn timeline_orders_by_effective_date_newest_first() {
+        let mut store = mem_store();
+        let recent = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
+        let old = NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
+        store.upsert(&idea("new", "New", Status::Active, &[], "x", recent)).unwrap();
+        store.upsert(&idea("old", "Old", Status::Concept, &[], "y", old)).unwrap();
+
+        let tl = timeline(&store).unwrap();
+        assert_eq!(tl.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), vec!["new", "old"]);
+        assert_eq!(tl[0].date, recent);
+        assert_eq!(tl[1].date, old);
     }
 
     #[test]

@@ -58,6 +58,8 @@ pub enum Command {
     Gaps,
     /// List the tag vocabulary with per-tag note counts.
     Tags,
+    /// List notes chronologically by effective date (review date, else modified).
+    Timeline,
     /// Propose an idea bridging two notes (needs the `enrich` build + a server).
     Bridge { a: String, b: String },
     /// Ask a question answered from your notes (RAG; needs `enrich` + `--embed`).

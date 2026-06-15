@@ -7,6 +7,11 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-022 Timeline view. `query::timeline` orders notes by effective date
+  (last-reviewed, else modified — same rule as `stale`), newest first. The left
+  explorer gains a **Timeline** view (fourth toggle, grouped by month);
+  `phanes timeline` prints the same on the CLI. Deterministic (INV-3); built
+  lazily, invalidated on re-index.
 - Graph: **right-click a node to inspect it** (refines F-013/F-020). Right-click
   focuses the node — highlights it, lights up its edges, rings and labels its
   direct neighbours, and loads its info into the right panel — *without* leaving
@@ -203,6 +208,14 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   retained for the optional llama.cpp-native path.
 
 ### Fixed
+- A deterministic re-index no longer wipes a note's model-proposed data (BUG-003).
+  Editing a note (e.g. changing its status, which lives in the blockquote header
+  for this corpus) used to rebuild it from asserted facts only and destroy its
+  proposed summary/tags/topics, and clear its embedding — emptying the info panel
+  and disconnecting it from the graph. The indexer now carries existing proposed
+  data forward (`preserve_proposed`) and keeps the embedding; proposed values
+  persist until an `--enrich`/`--force` pass refreshes them. Affected Save, the
+  status dropdown, accept-mention, the file-watcher, and plain `phanes index`.
 - Notes no longer silently lose or miss their embeddings (BUG-002). `upsert` now
   updates in place (`ON CONFLICT DO UPDATE`) instead of `INSERT OR REPLACE`, so a
   re-index preserves a note's vector; the indexer clears a stale vector only when

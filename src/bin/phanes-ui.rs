@@ -20,7 +20,7 @@ use phanes::graph::{self, EdgeKind, RelGraph};
 use phanes::indexer::{self, IndexOptions, IndexReport};
 use phanes::model::{Idea, Provenance, Status};
 use phanes::parser;
-use phanes::query::{self, ListItem, SearchFilter, TagGroup};
+use phanes::query::{self, ListItem, SearchFilter, TagGroup, TimelineEntry};
 use phanes::scaffold;
 use phanes::store::Store;
 use walkdir::WalkDir;
@@ -109,6 +109,7 @@ enum ExplorerMode {
     Ideas,
     Files,
     Tags,
+    Timeline,
 }
 
 /// A folder in the explorer: subdirectories plus the notes directly in it.
@@ -306,6 +307,7 @@ struct PhanesApp {
     explorer_mode: ExplorerMode,
     file_tree: Option<FileTree>, // raw filesystem tree, built lazily / invalidated on reindex
     tag_groups: Option<Vec<TagGroup>>, // tag browser, built lazily / invalidated on reindex (F-018)
+    timeline: Option<Vec<TimelineEntry>>, // chronological view, built lazily / invalidated (F-022)
     show_manual: bool,           // render the embedded MANUAL.md in the centre pane
     reveal_selected: bool,       // one-shot: expand+scroll the explorer to the selection
     // quick switcher (Ctrl+P) — fuzzy jump to any note (F-017)
@@ -389,6 +391,7 @@ impl PhanesApp {
             explorer_mode: ExplorerMode::Ideas,
             file_tree: None,
             tag_groups: None,
+            timeline: None,
             show_manual: false,
             reveal_selected: false,
             switcher_open: false,
@@ -1290,6 +1293,7 @@ impl PhanesApp {
         self.graph = None; // rebuilt next time the Graph tab is opened
         self.file_tree = None; // rebuilt next time the Files view is shown
         self.tag_groups = None; // rebuilt next time the Tags view is shown
+        self.timeline = None; // rebuilt next time the Timeline view is shown
     }
 
     /// Write a new asserted status into the selected note's file (deterministic,
@@ -1384,6 +1388,13 @@ impl eframe::App for PhanesApp {
                     {
                         self.explorer_mode = ExplorerMode::Tags;
                     }
+                    if ui
+                        .selectable_label(self.explorer_mode == ExplorerMode::Timeline, "Timeline")
+                        .on_hover_text("Notes by date (newest first), grouped by month")
+                        .clicked()
+                    {
+                        self.explorer_mode = ExplorerMode::Timeline;
+                    }
                 });
                 ui.horizontal(|ui| {
                     let busy = self.ai_rx.is_some();
@@ -1424,6 +1435,15 @@ impl eframe::App for PhanesApp {
                         self.store
                             .as_ref()
                             .and_then(|s| query::tag_index(s).ok())
+                            .unwrap_or_default(),
+                    );
+                }
+                // Build the timeline lazily when the Timeline view is shown.
+                if self.explorer_mode == ExplorerMode::Timeline && self.timeline.is_none() {
+                    self.timeline = Some(
+                        self.store
+                            .as_ref()
+                            .and_then(|s| query::timeline(s).ok())
                             .unwrap_or_default(),
                     );
                 }
@@ -1481,6 +1501,32 @@ impl eframe::App for PhanesApp {
                         }
                         _ => {
                             ui.weak("no tags — try ✨ Scan + AI to propose some");
+                        }
+                    },
+                    ExplorerMode::Timeline => match &self.timeline {
+                        Some(entries) if !entries.is_empty() => {
+                            let mut month = String::new();
+                            for e in entries {
+                                let m = e.date.format("%Y-%m").to_string();
+                                if m != month {
+                                    ui.add_space(4.0);
+                                    ui.weak(e.date.format("%B %Y").to_string());
+                                    month = m;
+                                }
+                                let sel = self.selected.as_deref() == Some(e.id.as_str());
+                                let text = egui::RichText::new(format!(
+                                    "{}  {}",
+                                    e.date.format("%d"),
+                                    e.title
+                                ))
+                                .color(status_color(e.status));
+                                if ui.selectable_label(sel, text).clicked() {
+                                    clicked = Some(e.id.clone());
+                                }
+                            }
+                        }
+                        _ => {
+                            ui.weak("no dated notes");
                         }
                     },
                     ExplorerMode::Ideas => {

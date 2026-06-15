@@ -11,7 +11,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use walkdir::WalkDir;
 
-use crate::model::{Idea, Sourced, Status};
+use crate::model::{Idea, Provenance, Sourced, Status};
 use crate::parser;
 use crate::store::Store;
 
@@ -113,12 +113,15 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
 
         // Enrich a *changed* file before its single upsert. Proposed values
         // never clobber asserted ones — see merge rules below.
+        #[cfg_attr(not(feature = "enrich"), allow(unused_mut))]
+        let mut enriched = false;
         if opts.enrich {
             #[cfg(feature = "enrich")]
             match crate::enrich::enrich(&idea.title, &idea.body, &vocabulary) {
                 Ok(e) => {
                     merge_proposed(&mut idea, e);
                     report.enriched += 1;
+                    enriched = true;
                 }
                 // Graceful degradation: a missing/slow model must not fail the
                 // index. We keep the asserted-only record.
@@ -126,10 +129,16 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
             }
         }
 
+        // A deterministic re-index (no enrichment this pass) must NOT destroy the
+        // note's model-proposed data. A plain edit — changing the status, fixing a
+        // typo — would otherwise wipe the proposed summary/tags/topics (and, via
+        // the cleared embedding, disconnect the note from the graph). So carry the
+        // existing proposed values forward; they stay until a `--enrich`/`--force`
+        // pass refreshes them. The embedding is likewise preserved (no clear).
+        if !enriched {
+            preserve_proposed(store, &mut idea)?;
+        }
         store.upsert(&idea)?;
-        // Content changed, so any existing embedding is stale — drop it; the
-        // embed gap-fill below recomputes it from the new content if requested.
-        store.clear_embedding(&id)?;
     }
 
     // --- AI gap-fill passes ---
@@ -188,11 +197,37 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
     Ok(report)
 }
 
+/// Carry a note's existing **model-proposed** data forward into a freshly-parsed
+/// (asserted-only) `idea`, so a deterministic re-index doesn't destroy it. Fills
+/// the proposed summary, re-adds proposed tags the author hasn't asserted, and
+/// keeps the topics — all gap-fill only, so asserted facts still win (INV-2). The
+/// embedding is preserved separately (the indexer no longer clears it). No-op for
+/// a never-indexed note. Deterministic — no model.
+fn preserve_proposed(store: &Store, idea: &mut Idea) -> Result<()> {
+    let Some(existing) = crate::query::get(store, &idea.id)? else {
+        return Ok(());
+    };
+    if idea.summary.is_none() {
+        if let Some(s) = existing.summary {
+            if s.source == Provenance::Proposed {
+                idea.summary = Some(s);
+            }
+        }
+    }
+    for t in existing.tags {
+        if t.source == Provenance::Proposed && !idea.tags.iter().any(|x| x.value == t.value) {
+            idea.tags.push(t);
+        }
+    }
+    if idea.topics.is_empty() {
+        idea.topics = existing.topics;
+    }
+    Ok(())
+}
+
 /// Merge model output into an idea. Asserted always wins.
 #[cfg(feature = "enrich")]
 fn merge_proposed(idea: &mut Idea, e: crate::model::Enrichment) {
-    use crate::model::Provenance;
-
     if idea.summary.is_none() {
         idea.summary = Some(Sourced::proposed(e.summary));
     }
@@ -206,4 +241,64 @@ fn merge_proposed(idea: &mut Idea, e: crate::model::Enrichment) {
         }
     }
     idea.topics = e.topics;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{Store, SCHEMA};
+    use chrono::Utc;
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+
+    fn mem_store() -> Store {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        Store { conn }
+    }
+
+    fn note(id: &str, status: Status, summary: Option<&str>, tags: Vec<Sourced<String>>, topics: &[&str], body: &str) -> Idea {
+        Idea {
+            id: id.into(),
+            path: PathBuf::from(format!("/{id}.md")),
+            title: id.into(),
+            status: Sourced::asserted(status),
+            summary: summary.map(|s| Sourced::proposed(s.into())),
+            tags,
+            topics: topics.iter().map(|s| s.to_string()).collect(),
+            last_reviewed: None,
+            mtime: Utc::now(),
+            content_hash: format!("h-{body}"),
+            body: body.into(),
+            links: Vec::new(),
+        }
+    }
+
+    /// A deterministic re-index of an edited note (e.g. a status change) must keep
+    /// its model-proposed summary/tags/topics — the BUG-003 fix.
+    #[test]
+    fn preserve_proposed_keeps_model_data_across_a_deterministic_edit() {
+        let mut store = mem_store();
+        // Enriched record: proposed summary, an asserted + a proposed tag, topics.
+        let existing = note(
+            "n",
+            Status::Active,
+            Some("auto summary"),
+            vec![Sourced::asserted("ui".into()), Sourced::proposed("ml".into())],
+            &["viz"],
+            "old body",
+        );
+        store.upsert(&existing).unwrap();
+
+        // A freshly-parsed, asserted-only idea, as a plain re-index builds — with a
+        // changed status and no model data.
+        let mut fresh = note("n", Status::Draft, None, vec![Sourced::asserted("ui".into())], &[], "new body");
+        preserve_proposed(&store, &mut fresh).unwrap();
+
+        assert_eq!(fresh.status.value, Status::Draft); // the asserted edit is kept
+        assert_eq!(fresh.summary.as_ref().unwrap().value, "auto summary"); // proposed preserved
+        assert!(fresh.tags.iter().any(|t| t.value == "ml" && t.source == Provenance::Proposed));
+        assert!(fresh.tags.iter().any(|t| t.value == "ui" && t.source == Provenance::Asserted));
+        assert_eq!(fresh.topics, vec!["viz"]);
+    }
 }

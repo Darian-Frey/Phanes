@@ -330,9 +330,13 @@ query-meaning retrieval, `near` and `ask` already exist. Builds on F-002 + F-012
 **Acceptance:**
 - A chronological view of notes by created / last-reviewed / modified date; pairs
   with `stale` to show momentum and rot over time.
-**Status:** Candidate
-**Notes:** Deterministic. A common view in mature note tools; cheap over existing
-date metadata.
+**Status:** Complete (post-roadmap). `query::timeline` orders notes by effective
+date (last-reviewed, else modified — the same COALESCE as `stale`), newest first.
+The left explorer gains a **Timeline** view (fourth toggle) grouped by month;
+`phanes timeline` prints the same on the CLI.
+**Notes:** Deterministic (INV-3), over existing date metadata; built lazily and
+invalidated on re-index. No "created" date is tracked, so effective date =
+last-reviewed or file mtime.
 
 ### F-023 Auto-classify / "see also" (index-time, proposed)
 **Priority:** Could

@@ -19,6 +19,31 @@ Severity vocabulary: low | medium | high.
 
 ## Fixed
 
+### BUG-003: A deterministic re-index wiped a note's model-proposed data
+**Status:** fixed (2026-06-15)
+**Found:** 2026-06-15 (changing a note's status from the UI emptied its info panel —
+summary/tags/topics gone — and disconnected its node in the graph)
+**Location:** [src/indexer.rs](src/indexer.rs) `run`, [src/store.rs](src/store.rs) `upsert`
+**Severity:** high (data — silent loss of all enrichment for any edited note)
+**Description.** A re-index without `--enrich` rebuilt a note from asserted facts
+only (no summary, asserted tags, no topics); `upsert` then replaced the row and
+deleted/re-inserted the tag/topic child rows, destroying the model-proposed
+summary, proposed tags, and topics. The indexer also `clear_embedding`'d on any
+content change, dropping the vector — so the note lost its semantic + shared-tag
+edges and fell out of the graph. Because this corpus stores status in the
+blockquote header (part of `body`), **every status change** triggered it; so did
+Save, accept-mention, the file-watcher, and a plain `phanes index` over edited
+notes.
+**Reproduction.** Enrich a note, then edit it (e.g. change its status) and
+re-index without `--enrich`: its proposed summary/tags/topics and `near` results
+vanish.
+**Notes.** Fixed by `indexer::preserve_proposed` — on a deterministic pass the
+existing proposed summary/tags/topics are carried forward into the freshly-parsed
+record (gap-fill only; asserted still wins, INV-2) — and by no longer clearing the
+embedding. Model-proposed data now persists until an `--enrich`/`--force` pass
+refreshes it. Verified live: a status edit + plain re-index preserved the summary,
+all proposed tags, and all `near` results.
+
 ### BUG-002: Notes silently lost / never got embeddings (no graph connections)
 **Status:** fixed (2026-06-13)
 **Found:** 2026-06-13 (two Ananke notes showed disconnected in the graph, with

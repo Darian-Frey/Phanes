@@ -234,6 +234,15 @@ phanes --root ideas tags
 Every tag with its note count (and an asserted/proposed split where they differ),
 most-used first. The CLI form of the explorer's Tags view.
 
+### `timeline` — notes by date
+
+```bash
+phanes --root ideas timeline
+```
+
+Notes newest-first, grouped by month, by effective date (review date, else
+modified). The CLI form of the explorer's Timeline view; the dual of `stale`.
+
 ### `bridge` — propose an idea connecting two notes *(AI)*
 
 ```bash
@@ -306,6 +315,9 @@ An **Ideas / Files / Tags** toggle tops the panel:
 - **Tags** — the tag vocabulary, most-used first, each shown as `tag · count`
   (with `~N` if some uses are proposed). Expand a tag to list the notes carrying
   it; click one to open it. (`phanes tags` prints the same list on the CLI.)
+- **Timeline** — notes by date (newest first), grouped by month. The date is the
+  review date, or the file's modified date if none — the same "effective date"
+  `stale` uses. Click a note to open it. (`phanes timeline` on the CLI.)
 
 Two buttons sit below the toggle:
 
