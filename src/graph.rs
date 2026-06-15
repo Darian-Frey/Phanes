@@ -380,6 +380,7 @@ mod tests {
             title: id.into(),
             status: Sourced::asserted(Status::Active),
             summary: None,
+            category: None,
             tags: Vec::new(),
             topics: Vec::new(),
             last_reviewed: None,

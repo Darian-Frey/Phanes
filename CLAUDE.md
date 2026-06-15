@@ -114,6 +114,12 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   (`MANUAL` const), shown in the centre pane by `egui_commonmark` behind a `?`
   button / F1 toggle (`show_manual`); read-only, not an indexed note. Ships in the
   AppImage with no runtime file dependency.
+- **Done (F-023 auto-classify):** enrichment proposes a coarse **category** (kind
+  of note) per note. New `Idea.category`/`Enrichment.category` (proposed), stored in
+  `ideas.category`/`category_source` (added via an `ALTER TABLE` migration in
+  `store::open` — idempotent, ignores "duplicate column"). `merge_proposed` sets it,
+  `preserve_proposed` carries it forward (BUG-003), `show` + the UI info panel show
+  it. `Enrichment.category` has `#[serde(default)]`.
 - **Done (F-022 timeline):** `query::timeline` (notes by effective date — the
   `stale` COALESCE — newest first). Left explorer **Timeline** view (4th toggle),
   grouped by month; `phanes timeline` CLI. Lazy (`timeline` field), invalidated on

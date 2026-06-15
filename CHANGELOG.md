@@ -7,6 +7,12 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-023 Auto-classify. Enrichment now also proposes a single coarse **category**
+  per note (the kind of note — developer-tool, research, creative, spec…), a new
+  proposed field stored in the `ideas` table (`category`/`category_source`, added
+  by a lightweight `ALTER TABLE` migration so existing indexes upgrade in place).
+  `show` and the UI info panel display it with a provenance badge. Index-time and
+  proposed (INV-1/INV-2); preserved across deterministic re-indexes (BUG-003).
 - F-022 Timeline view. `query::timeline` orders notes by effective date
   (last-reviewed, else modified — same rule as `stale`), newest first. The left
   explorer gains a **Timeline** view (fourth toggle, grouped by month);

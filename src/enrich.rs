@@ -28,10 +28,11 @@ const DEFAULT_MODEL: &str = "local-model";
 
 const SYSTEM_PROMPT: &str = "You catalogue project-idea notes. Read the note and \
     return JSON only, matching the schema. summary: one plain sentence describing \
-    what the note is about. status: one of the allowed values. tags: 2-6 short \
-    lowercase keywords — reuse the existing tags listed at the end of the note \
-    when they fit, and only coin a new tag when none applies. topics: 1-4 broader \
-    concept areas.";
+    what the note is about. status: one of the allowed values. category: one short \
+    lowercase label for the KIND of note it is (e.g. developer-tool, research, \
+    creative, game, spec, handoff, hardware). tags: 2-6 short lowercase keywords — \
+    reuse the existing tags listed at the end of the note when they fit, and only \
+    coin a new tag when none applies. topics: 1-4 broader concept areas.";
 
 fn endpoint() -> String {
     std::env::var("PHANES_LLM_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
@@ -53,7 +54,7 @@ fn response_format() -> serde_json::Value {
             "schema": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["summary", "status", "tags", "topics"],
+                "required": ["summary", "status", "category", "tags", "topics"],
                 "properties": {
                     "summary": { "type": "string" },
                     "status": {
@@ -63,6 +64,7 @@ fn response_format() -> serde_json::Value {
                             "complete", "archived", "superseded", "unknown"
                         ]
                     },
+                    "category": { "type": "string" },
                     "tags": { "type": "array", "items": { "type": "string" } },
                     "topics": { "type": "array", "items": { "type": "string" } }
                 }
@@ -216,12 +218,20 @@ mod tests {
 
     #[test]
     fn parses_a_well_formed_reply() {
-        let content = r#"{"summary":"A spatial canvas for ideas.","status":"active","tags":["ui","spatial"],"topics":["visualization"]}"#;
+        let content = r#"{"summary":"A spatial canvas for ideas.","status":"active","category":"developer-tool","tags":["ui","spatial"],"topics":["visualization"]}"#;
         let e = parse_enrichment(content).unwrap();
         assert_eq!(e.summary, "A spatial canvas for ideas.");
         assert_eq!(e.status, Status::Active);
+        assert_eq!(e.category, "developer-tool");
         assert_eq!(e.tags, vec!["ui", "spatial"]);
         assert_eq!(e.topics, vec!["visualization"]);
+    }
+
+    #[test]
+    fn category_defaults_when_absent() {
+        // older replies without the field still parse (serde default)
+        let content = r#"{"summary":"x","status":"draft","tags":[],"topics":[]}"#;
+        assert_eq!(parse_enrichment(content).unwrap().category, "");
     }
 
     #[test]

@@ -1619,6 +1619,14 @@ impl eframe::App for PhanesApp {
                             });
                             ui.label(&summary.value);
                         }
+                        if let Some(category) = &idea.category {
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                ui.strong("category");
+                                prov_badge(ui, category.source);
+                                ui.label(&category.value);
+                            });
+                        }
 
                         ui.add_space(6.0);
                         ui.strong("tags");

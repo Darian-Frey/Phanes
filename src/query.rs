@@ -252,27 +252,29 @@ pub fn get(store: &Store, id: &str) -> Result<Option<Idea>> {
         .conn
         .query_row(
             "SELECT path, title, status, status_source, summary, summary_source, \
-                    last_reviewed, mtime, content_hash, body \
+                    category, category_source, last_reviewed, mtime, content_hash, body \
                FROM ideas WHERE id = ?1",
             params![id],
             |r| {
                 Ok((
-                    r.get::<_, String>(0)?,         // path
-                    r.get::<_, String>(1)?,         // title
-                    r.get::<_, String>(2)?,         // status
-                    r.get::<_, String>(3)?,         // status_source
-                    r.get::<_, Option<String>>(4)?, // summary
-                    r.get::<_, Option<String>>(5)?, // summary_source
-                    r.get::<_, Option<String>>(6)?, // last_reviewed
-                    r.get::<_, String>(7)?,         // mtime
-                    r.get::<_, String>(8)?,         // content_hash
-                    r.get::<_, String>(9)?,         // body
+                    r.get::<_, String>(0)?,          // path
+                    r.get::<_, String>(1)?,          // title
+                    r.get::<_, String>(2)?,          // status
+                    r.get::<_, String>(3)?,          // status_source
+                    r.get::<_, Option<String>>(4)?,  // summary
+                    r.get::<_, Option<String>>(5)?,  // summary_source
+                    r.get::<_, Option<String>>(6)?,  // category
+                    r.get::<_, Option<String>>(7)?,  // category_source
+                    r.get::<_, Option<String>>(8)?,  // last_reviewed
+                    r.get::<_, String>(9)?,          // mtime
+                    r.get::<_, String>(10)?,         // content_hash
+                    r.get::<_, String>(11)?,         // body
                 ))
             },
         )
         .optional()?;
 
-    let Some((path, title, status, status_src, summary, summary_src, last_reviewed, mtime, content_hash, body)) =
+    let Some((path, title, status, status_src, summary, summary_src, category, category_src, last_reviewed, mtime, content_hash, body)) =
         row
     else {
         return Ok(None);
@@ -295,6 +297,10 @@ pub fn get(store: &Store, id: &str) -> Result<Option<Idea>> {
         value,
         source: Provenance::from_db(summary_src.as_deref().unwrap_or("proposed")),
     });
+    let category = category.map(|value| Sourced {
+        value,
+        source: Provenance::from_db(category_src.as_deref().unwrap_or("proposed")),
+    });
 
     Ok(Some(Idea {
         id: id.to_string(),
@@ -305,6 +311,7 @@ pub fn get(store: &Store, id: &str) -> Result<Option<Idea>> {
             source: Provenance::from_db(&status_src),
         },
         summary,
+        category,
         tags,
         topics,
         last_reviewed: last_reviewed.and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()),
@@ -723,6 +730,7 @@ mod tests {
             title: title.into(),
             status: Sourced::asserted(status),
             summary: None,
+            category: None,
             tags: tags.iter().map(|t| Sourced::asserted(t.to_string())).collect(),
             topics: Vec::new(),
             last_reviewed: Some(reviewed),
@@ -885,12 +893,16 @@ mod tests {
         // add a proposed tag and a proposed summary alongside the asserted tag
         idea.tags.push(Sourced::proposed("ai".into()));
         idea.summary = Some(Sourced::proposed("auto summary".into()));
+        idea.category = Some(Sourced::proposed("developer-tool".into()));
         idea.topics = vec!["viz".into()];
         store.upsert(&idea).unwrap();
 
         let got = get(&store, "p").unwrap().expect("idea exists");
         assert_eq!(got.status.source, Provenance::Asserted);
         assert_eq!(got.summary.as_ref().unwrap().source, Provenance::Proposed);
+        let cat = got.category.as_ref().unwrap();
+        assert_eq!(cat.value, "developer-tool");
+        assert_eq!(cat.source, Provenance::Proposed);
         let ui = got.tags.iter().find(|t| t.value == "ui").unwrap();
         let ai = got.tags.iter().find(|t| t.value == "ai").unwrap();
         assert_eq!(ui.source, Provenance::Asserted);

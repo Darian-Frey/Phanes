@@ -344,9 +344,15 @@ last-reviewed or file mtime.
 - At index time the model proposes a category/grouping (and optionally a target
   folder) per note, stored as *proposed* (INV-2) and surfaced in `show` / the info
   panel.
-**Status:** Candidate
+**Status:** Complete (post-roadmap). Enrichment now also proposes a single coarse
+**category** (the kind of note — developer-tool, research, creative, spec…), a new
+`model::Idea.category` / `Enrichment.category` field stored in the `ideas` table
+(`category`/`category_source`; added by a lightweight `ALTER TABLE` migration).
+`show` and the UI info panel display it with its provenance badge; preserved
+across deterministic re-indexes (BUG-003). Target-folder suggestion not built.
 **Notes:** DEVONthink "See Also & Classify"; Mem self-organising. Index-time and
-proposed — a sibling of proposed tags (F-008).
+proposed — a sibling of proposed tags (F-008). The category json_schema field is
+required; `Enrichment.category` has `#[serde(default)]` for older replies.
 
 ### F-024 Generated open questions per cluster (opt-in, generative)
 **Priority:** Could

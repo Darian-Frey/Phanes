@@ -171,6 +171,9 @@ fn print_idea(idea: &Idea, related: &[query::Hit], backlinks: &[query::Hit], men
     if let Some(summary) = &idea.summary {
         println!("  summary:  {} {}", summary.value, prov_tag(summary.source));
     }
+    if let Some(category) = &idea.category {
+        println!("  category: {} {}", category.value, prov_tag(category.source));
+    }
     if !idea.tags.is_empty() {
         let tags = idea
             .tags

@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS ideas (
     status_source  TEXT NOT NULL,      -- asserted|proposed
     summary        TEXT,               -- usually proposed
     summary_source TEXT,               -- asserted|proposed|NULL
+    category       TEXT,               -- proposed classification of the note's kind (F-023)
+    category_source TEXT,              -- asserted|proposed|NULL
     last_reviewed  TEXT,               -- ISO date, asserted, nullable
     mtime          TEXT NOT NULL,      -- ISO datetime; staleness fallback
     content_hash   TEXT NOT NULL,      -- blake3 hex; enrichment cache key

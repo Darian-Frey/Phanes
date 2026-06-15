@@ -358,7 +358,9 @@ The GUI counterpart of `show` for the selected note:
 
 - **Status** — a dropdown. Changing it writes the new asserted status into the
   file and re-indexes, so a note with no status can be given one in place.
-- **Summary / topics** — proposed values from enrichment, shown distinctly.
+- **Summary / category / topics** — proposed values from enrichment, shown
+  distinctly. *Category* is a coarse classification of the note's kind
+  (developer-tool, research, creative, spec…), proposed by the model at index time.
 - **Tags** — editable. `×` removes an asserted tag; `✓` accepts a proposed
   (`~`) tag, promoting it to asserted and writing it into the file; the **add
   tag** field appends a new one. Accepting/removing updates the file and the

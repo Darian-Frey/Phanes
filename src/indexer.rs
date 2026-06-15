@@ -96,6 +96,7 @@ pub fn run(store: &mut Store, root: &Path, opts: &IndexOptions) -> Result<IndexR
                 .map(Sourced::asserted)
                 .unwrap_or_else(|| Sourced::asserted(Status::Unknown)),
             summary: None,
+            category: None,
             tags: parsed.tags.into_iter().map(Sourced::asserted).collect(),
             topics: Vec::new(),
             last_reviewed: parsed.last_reviewed,
@@ -214,6 +215,13 @@ fn preserve_proposed(store: &Store, idea: &mut Idea) -> Result<()> {
             }
         }
     }
+    if idea.category.is_none() {
+        if let Some(c) = existing.category {
+            if c.source == Provenance::Proposed {
+                idea.category = Some(c);
+            }
+        }
+    }
     for t in existing.tags {
         if t.source == Provenance::Proposed && !idea.tags.iter().any(|x| x.value == t.value) {
             idea.tags.push(t);
@@ -230,6 +238,9 @@ fn preserve_proposed(store: &Store, idea: &mut Idea) -> Result<()> {
 fn merge_proposed(idea: &mut Idea, e: crate::model::Enrichment) {
     if idea.summary.is_none() {
         idea.summary = Some(Sourced::proposed(e.summary));
+    }
+    if idea.category.is_none() && !e.category.trim().is_empty() {
+        idea.category = Some(Sourced::proposed(e.category));
     }
     if idea.status.source == Provenance::Asserted && matches!(idea.status.value, Status::Unknown) {
         idea.status = Sourced::proposed(e.status);
@@ -264,6 +275,7 @@ mod tests {
             title: id.into(),
             status: Sourced::asserted(status),
             summary: summary.map(|s| Sourced::proposed(s.into())),
+            category: None,
             tags,
             topics: topics.iter().map(|s| s.to_string()).collect(),
             last_reviewed: None,

@@ -118,6 +118,9 @@ pub struct Idea {
     pub status: Sourced<Status>,
     /// Usually proposed by the model; absent if enrichment didn't run.
     pub summary: Option<Sourced<String>>,
+    /// A coarse, proposed classification of the note's kind (e.g. `developer-tool`,
+    /// `research`, `creative`, `spec`); model output, absent without enrichment.
+    pub category: Option<Sourced<String>>,
     pub tags: Vec<Sourced<String>>,
     /// Proposed concept labels. Kept distinct from asserted tags.
     pub topics: Vec<String>,
@@ -139,6 +142,10 @@ pub struct Idea {
 pub struct Enrichment {
     pub summary: String,
     pub status: Status,
+    /// A coarse classification of the note's kind. `#[serde(default)]` so older
+    /// replies without the field still parse (it's required by the json_schema).
+    #[serde(default)]
+    pub category: String,
     pub tags: Vec<String>,
     pub topics: Vec<String>,
 }

@@ -27,6 +27,11 @@ impl Store {
         // without immediate "database is locked" errors.
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
+        // Lightweight migration for columns added after the initial schema:
+        // `CREATE TABLE IF NOT EXISTS` won't touch an existing table, so add them
+        // here. ADD COLUMN errors with "duplicate column" once present — ignore it.
+        let _ = conn.execute("ALTER TABLE ideas ADD COLUMN category TEXT", []);
+        let _ = conn.execute("ALTER TABLE ideas ADD COLUMN category_source TEXT", []);
         Ok(Self { conn })
     }
 
@@ -59,6 +64,10 @@ impl Store {
             Some(s) => (Some(s.value.clone()), Some(s.source.as_str())),
             None => (None, None),
         };
+        let (category, category_source) = match &idea.category {
+            Some(c) => (Some(c.value.clone()), Some(c.source.as_str())),
+            None => (None, None),
+        };
 
         let tx = self.conn.transaction()?;
 
@@ -70,12 +79,14 @@ impl Store {
         tx.execute(
             "INSERT INTO ideas
                 (id, path, title, status, status_source,
-                 summary, summary_source, last_reviewed, mtime, content_hash, body)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 summary, summary_source, category, category_source,
+                 last_reviewed, mtime, content_hash, body)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(id) DO UPDATE SET
                 path = excluded.path, title = excluded.title,
                 status = excluded.status, status_source = excluded.status_source,
                 summary = excluded.summary, summary_source = excluded.summary_source,
+                category = excluded.category, category_source = excluded.category_source,
                 last_reviewed = excluded.last_reviewed, mtime = excluded.mtime,
                 content_hash = excluded.content_hash, body = excluded.body",
             params![
@@ -86,6 +97,8 @@ impl Store {
                 idea.status.source.as_str(),
                 summary,
                 summary_source,
+                category,
+                category_source,
                 last_reviewed,
                 mtime,
                 idea.content_hash,
@@ -270,6 +283,7 @@ mod tests {
             title: "Spatial Canvas".into(),
             status: Sourced::asserted(Status::Active),
             summary: Some(Sourced::proposed("A pan-and-zoom canvas for ideas.".into())),
+            category: None,
             // one asserted tag, one proposed — provenance must survive the round trip.
             tags: vec![
                 Sourced::asserted("ui".into()),
