@@ -1,10 +1,16 @@
 # Changelog
 
 Format follows [Keep a Changelog](https://keepachangelog.com).
-Phanes is pre-release; all work to date sits under [Unreleased].
 Entries reference F- (features) and D- (decisions) IDs for traceability.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-06-16
+
+First release. The deterministic core (index / search / stale / related / near /
+gaps / show / new), the three-panel desktop app, and the opt-in local-model layer
+(enrichment, embeddings, graph analytics, bridges, RAG ask, generated questions)
+are all shipped and in daily use. Highlights below; see the full list for detail.
 
 ### Added
 - F-027 Colour themes. A 🎨 picker in a new top bar switches the whole UI between

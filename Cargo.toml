@@ -1,6 +1,6 @@
 [package]
 name = "phanes"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "Index, search, and surface relationships across a folder of project-idea markdown files."
 license = "MIT OR Apache-2.0"

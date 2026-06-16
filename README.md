@@ -1,7 +1,7 @@
 > **Status:** Active
 > **Provenance:** Claude (scaffold) · Shane Hartley (owner/architect)
-> **Last reviewed:** 2026-06-14
-> **Why this status:** The deterministic core, the three-panel desktop app, and the optional local-model layer (enrichment, embeddings, semantic "near", graph + gaps, bridges, and RAG "ask") are all shipped and in use.
+> **Last reviewed:** 2026-06-16
+> **Why this status:** **v1.0.0 shipped.** The deterministic core, the three-panel desktop app (four themes), and the optional local-model layer (enrichment, embeddings, semantic "near", graph analytics, bridges, RAG "ask", generated questions) are all shipped and in daily use.
 
 ---
 
