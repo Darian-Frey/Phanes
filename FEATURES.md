@@ -212,6 +212,22 @@ runtime); rendered with `egui_commonmark`, kept separate from the View/Edit/Grap
 Ask views.
 **Notes:** Reuses the existing markdown viewer (F-010). Related: MANUAL.md.
 
+### F-027 Colour themes
+**Priority:** Could
+**Acceptance:**
+- A theme picker (top-bar 🎨 dropdown) switches the whole UI between **Dark**,
+  **Light**, **Parchment**, and **Cyberpunk**; the choice persists across runs.
+- Each theme is a full palette (`apply_theme` → egui `Visuals`); Parchment adds a
+  bundled **serif** font, Cyberpunk uses the built-in **monospace**.
+- Semantic colours (status / cluster / graph edges / proposed) stay legible on
+  every theme — they switch bright↔dark via a thread-local background flag.
+**Status:** Complete (post-roadmap). Themes applied via `apply_theme(ctx, theme)`;
+persisted to `$XDG_CONFIG_HOME/phanes/theme` (global). Parchment serif is
+DejaVu Serif, bundled (`assets/fonts/`, redistributable) and compiled in with
+`include_str!`/`include_bytes!` so it ships in the AppImage.
+**Notes:** A new top bar hosts the picker. The graph canvas accents (focus,
+gaps, edges, labels) are theme-aware too.
+
 ## Candidate features (uncommitted)
 
 Ideas not committed to. Most come from a 2026-06-11 survey of local-LLM note

@@ -30,6 +30,154 @@ use walkdir::WalkDir;
 /// in the centre pane via the markdown viewer — read-only, never an indexed note.
 const MANUAL: &str = include_str!("../../MANUAL.md");
 
+/// A serif face bundled for the Parchment theme (DejaVu Serif — redistributable;
+/// see assets/fonts/LICENSE.md). Compiled in so it ships in the AppImage.
+const SERIF: &[u8] = include_bytes!("../../assets/fonts/DejaVuSerif.ttf");
+
+/// The window/taskbar icon (the Φ mark), compiled in and set on the viewport —
+/// eframe doesn't pick up the AppImage's icon for the running window, so without
+/// this the OS shows a generic default.
+const ICON_PNG: &[u8] = include_bytes!("../../packaging/appimage/phanes.png");
+
+// Whether the current theme has a dark background — set by `apply_theme`, read by
+// the color helpers so status/cluster/edge colours stay legible on light themes.
+// egui runs single-threaded, so a thread-local is safe and avoids threading a
+// flag through every paint call.
+thread_local! {
+    static DARK_BG: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+fn dark_bg() -> bool {
+    DARK_BG.with(|c| c.get())
+}
+
+/// The available colour themes (F-027).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Theme {
+    Dark,
+    Light,
+    Parchment,
+    Cyberpunk,
+}
+
+impl Theme {
+    const ALL: [Theme; 4] = [Theme::Dark, Theme::Light, Theme::Parchment, Theme::Cyberpunk];
+
+    fn label(self) -> &'static str {
+        match self {
+            Theme::Dark => "Dark",
+            Theme::Light => "Light",
+            Theme::Parchment => "Parchment",
+            Theme::Cyberpunk => "Cyberpunk",
+        }
+    }
+    fn from_label(s: &str) -> Option<Theme> {
+        Theme::ALL.into_iter().find(|t| t.label().eq_ignore_ascii_case(s.trim()))
+    }
+    fn is_dark(self) -> bool {
+        !matches!(self, Theme::Light | Theme::Parchment)
+    }
+}
+
+/// Path the chosen theme is persisted to (`$XDG_CONFIG_HOME` or `~/.config`, then
+/// `phanes/theme`) — a global preference, independent of which folder is open.
+fn theme_config_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    Some(base.join("phanes").join("theme"))
+}
+
+fn load_theme() -> Option<Theme> {
+    let s = std::fs::read_to_string(theme_config_path()?).ok()?;
+    Theme::from_label(&s)
+}
+
+fn save_theme(theme: Theme) {
+    if let Some(path) = theme_config_path() {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(path, theme.label());
+    }
+}
+
+/// Apply a theme to the egui context: colour palette (`Visuals`), the dark-bg flag
+/// the colour helpers read, and the font family/text styles (serif for Parchment,
+/// monospace for Cyberpunk).
+fn apply_theme(ctx: &egui::Context, theme: Theme) {
+    use egui::Color32 as C;
+    DARK_BG.with(|c| c.set(theme.is_dark()));
+
+    // (bg, panel, input, text, weak, accent, widget, widget_hover)
+    let (bg, panel, input, text, weak, accent, widget, widget_hover) = match theme {
+        Theme::Dark => (
+            C::from_rgb(24, 25, 28), C::from_rgb(30, 31, 36), C::from_rgb(18, 19, 22),
+            C::from_rgb(220, 222, 228), C::from_rgb(140, 142, 150), C::from_rgb(240, 224, 150),
+            C::from_rgb(46, 48, 54), C::from_rgb(62, 64, 72),
+        ),
+        Theme::Light => (
+            C::from_rgb(246, 246, 248), C::from_rgb(236, 237, 240), C::from_rgb(255, 255, 255),
+            C::from_rgb(32, 34, 40), C::from_rgb(110, 112, 120), C::from_rgb(40, 90, 200),
+            C::from_rgb(224, 226, 230), C::from_rgb(206, 210, 218),
+        ),
+        Theme::Parchment => (
+            C::from_rgb(238, 226, 198), C::from_rgb(230, 216, 184), C::from_rgb(246, 238, 218),
+            C::from_rgb(70, 52, 32), C::from_rgb(132, 110, 80), C::from_rgb(150, 70, 30),
+            C::from_rgb(222, 206, 172), C::from_rgb(208, 188, 148),
+        ),
+        Theme::Cyberpunk => (
+            C::from_rgb(12, 10, 22), C::from_rgb(20, 16, 34), C::from_rgb(8, 6, 16),
+            C::from_rgb(225, 230, 245), C::from_rgb(120, 130, 180), C::from_rgb(255, 70, 200),
+            C::from_rgb(30, 22, 50), C::from_rgb(48, 34, 78),
+        ),
+    };
+
+    let mut v = if theme.is_dark() { egui::Visuals::dark() } else { egui::Visuals::light() };
+    v.override_text_color = Some(text);
+    v.window_fill = bg;
+    v.panel_fill = panel;
+    v.extreme_bg_color = input;
+    v.faint_bg_color = panel;
+    v.hyperlink_color = accent;
+    v.selection.bg_fill = C::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 90);
+    v.selection.stroke = egui::Stroke::new(1.0, text);
+    v.widgets.noninteractive.bg_fill = panel;
+    v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, weak);
+    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+        w.fg_stroke = egui::Stroke::new(1.0, text);
+    }
+    v.widgets.inactive.bg_fill = widget;
+    v.widgets.inactive.weak_bg_fill = widget;
+    v.widgets.hovered.bg_fill = widget_hover;
+    v.widgets.hovered.weak_bg_fill = widget_hover;
+    v.widgets.active.bg_fill = accent;
+    v.widgets.active.weak_bg_fill = accent;
+    ctx.set_visuals(v);
+
+    // Fonts: serif for Parchment, monospace for Cyberpunk, default sans otherwise.
+    let mut fonts = egui::FontDefinitions::default();
+    if theme == Theme::Parchment {
+        fonts.font_data.insert("serif".to_owned(), egui::FontData::from_static(SERIF).into());
+        fonts
+            .families
+            .entry(egui::FontFamily::Proportional)
+            .or_default()
+            .insert(0, "serif".to_owned());
+    }
+    ctx.set_fonts(fonts);
+
+    let family = if theme == Theme::Cyberpunk {
+        egui::FontFamily::Monospace
+    } else {
+        egui::FontFamily::Proportional
+    };
+    let mut style = (*ctx.global_style()).clone();
+    for (_, font_id) in style.text_styles.iter_mut() {
+        font_id.family = family.clone();
+    }
+    ctx.set_global_style(style);
+}
+
 /// The statuses offered by the info-panel dropdown (every real status; `Unknown`
 /// is the "no status" sentinel and isn't something you set).
 const STATUS_CHOICES: [Status; 7] = [
@@ -48,10 +196,11 @@ fn main() -> eframe::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("ideas"));
 
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1100.0, 720.0]),
-        ..Default::default()
-    };
+    let mut viewport = egui::ViewportBuilder::default().with_inner_size([1100.0, 720.0]);
+    if let Ok(icon) = eframe::icon_data::from_png_bytes(ICON_PNG) {
+        viewport = viewport.with_icon(icon);
+    }
+    let options = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native(
         "Phanes",
         options,
@@ -321,6 +470,7 @@ struct PhanesApp {
     tag_groups: Option<Vec<TagGroup>>, // tag browser, built lazily / invalidated on reindex (F-018)
     timeline: Option<Vec<TimelineEntry>>, // chronological view, built lazily / invalidated (F-022)
     show_manual: bool,           // render the embedded MANUAL.md in the centre pane
+    theme: Theme,                // current colour theme (F-027)
     reveal_selected: bool,       // one-shot: expand+scroll the explorer to the selection
     // quick switcher (Ctrl+P) — fuzzy jump to any note (F-017)
     switcher_open: bool,
@@ -359,6 +509,10 @@ impl PhanesApp {
             }
             Err(e) => (None, Some(e.to_string()), Tree::default()),
         };
+        // Restore and apply the saved colour theme (F-027) before `ctx` is moved
+        // into the file-watcher below.
+        let theme = load_theme().unwrap_or(Theme::Dark);
+        apply_theme(&ctx, theme);
         // Live file-watching (F-019): auto re-index on external .md changes.
         let (watcher, watch_rx) = match start_watch(&root, ctx) {
             Some((w, rx)) => (Some(w), Some(rx)),
@@ -407,6 +561,7 @@ impl PhanesApp {
             tag_groups: None,
             timeline: None,
             show_manual: false,
+            theme,
             reveal_selected: false,
             switcher_open: false,
             switcher_query: String::new(),
@@ -1129,15 +1284,19 @@ impl PhanesApp {
                 .collect(),
             None => std::collections::HashSet::new(),
         };
-        // Cool cyan, deliberately distinct from the warm gold of the Gaps overlay
-        // (PROPOSED) so an inspected node's connections don't blend into the
-        // dashed candidate bridges when both are shown.
-        const FOCUS: egui::Color32 = egui::Color32::from_rgb(150, 225, 245);
+        // Cool blue/cyan, deliberately distinct from the warm gold of the Gaps
+        // overlay so an inspected node's connections don't blend into the dashed
+        // candidate bridges when both are shown. Darker on a light canvas.
+        let focus = if dark_bg() {
+            egui::Color32::from_rgb(150, 225, 245)
+        } else {
+            egui::Color32::from_rgb(20, 110, 190)
+        };
 
         for e in &g.edges {
             let incident = Some(e.a) == sel_idx || Some(e.b) == sel_idx;
             let stroke = if incident {
-                egui::Stroke::new(2.2, FOCUS) // a connection of the focused node
+                egui::Stroke::new(2.2, focus) // a connection of the focused node
             } else {
                 egui::Stroke::new(1.0, edge_color(e.kind, e.weight))
             };
@@ -1165,7 +1324,7 @@ impl PhanesApp {
             if sel {
                 painter.circle_stroke(p, r + 2.5, egui::Stroke::new(2.0, egui::Color32::WHITE));
             } else if neighbours.contains(&i) {
-                painter.circle_stroke(p, r + 2.0, egui::Stroke::new(1.8, FOCUS));
+                painter.circle_stroke(p, r + 2.0, egui::Stroke::new(1.8, focus));
             }
         }
 
@@ -1189,7 +1348,7 @@ impl PhanesApp {
                 let b = to_screen(self.layout[e.b]);
                 painter.extend(egui::Shape::dashed_line(
                     &[a, b],
-                    egui::Stroke::new(1.8, PROPOSED),
+                    egui::Stroke::new(1.8, proposed_color()),
                     6.0,
                     4.0,
                 ));
@@ -1198,7 +1357,7 @@ impl PhanesApp {
                     egui::Align2::CENTER_CENTER,
                     format!("{:.0}%", e.weight * 100.0),
                     egui::FontId::proportional(10.0),
-                    PROPOSED,
+                    proposed_color(),
                 );
             }
             let orphan_ring = egui::Color32::from_rgb(235, 140, 90);
@@ -1499,6 +1658,29 @@ impl PhanesApp {
 
 impl eframe::App for PhanesApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // --- top bar: title + theme picker (F-027) ---
+        egui::Panel::top("topbar").show_inside(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.strong("Phanes");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let mut theme = self.theme;
+                    egui::ComboBox::from_id_salt("theme")
+                        .selected_text(theme.label())
+                        .show_ui(ui, |ui| {
+                            for t in Theme::ALL {
+                                ui.selectable_value(&mut theme, t, t.label());
+                            }
+                        });
+                    ui.label("🎨");
+                    if theme != self.theme {
+                        self.theme = theme;
+                        apply_theme(ui.ctx(), theme);
+                        save_theme(theme);
+                    }
+                });
+            });
+        });
+
         // --- left: explorer ---
         let left = egui::Panel::left("explorer")
             .resizable(true)
@@ -1794,7 +1976,7 @@ impl eframe::App for PhanesApp {
                                         }
                                     }
                                     Provenance::Proposed => {
-                                        ui.colored_label(PROPOSED, format!("~{}", t.value));
+                                        ui.colored_label(proposed_color(), format!("~{}", t.value));
                                         if ui
                                             .small_button("✓")
                                             .on_hover_text("accept (make asserted)")
@@ -2013,7 +2195,7 @@ impl eframe::App for PhanesApp {
                             save_requested = true;
                         }
                         if dirty {
-                            ui.colored_label(egui::Color32::from_rgb(225, 200, 110), "● unsaved");
+                            ui.colored_label(proposed_color(), "● unsaved");
                         }
                         if let Some(msg) = &self.status_msg {
                             ui.weak(msg);
@@ -2093,10 +2275,19 @@ fn dist_to_segment(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
 /// Edge colour by relationship kind, faded by weight.
 fn edge_color(kind: EdgeKind, weight: f32) -> egui::Color32 {
     let a = (60.0 + weight * 150.0).clamp(40.0, 230.0) as u8;
-    match kind {
-        EdgeKind::Link => egui::Color32::from_rgba_unmultiplied(205, 205, 215, 210),
-        EdgeKind::Tag => egui::Color32::from_rgba_unmultiplied(120, 200, 140, a),
-        EdgeKind::Semantic => egui::Color32::from_rgba_unmultiplied(120, 150, 215, a),
+    if dark_bg() {
+        match kind {
+            EdgeKind::Link => egui::Color32::from_rgba_unmultiplied(205, 205, 215, 210),
+            EdgeKind::Tag => egui::Color32::from_rgba_unmultiplied(120, 200, 140, a),
+            EdgeKind::Semantic => egui::Color32::from_rgba_unmultiplied(120, 150, 215, a),
+        }
+    } else {
+        // darker, more opaque lines so they read on a light canvas
+        match kind {
+            EdgeKind::Link => egui::Color32::from_rgba_unmultiplied(80, 80, 95, 220),
+            EdgeKind::Tag => egui::Color32::from_rgba_unmultiplied(40, 120, 70, a.saturating_add(30)),
+            EdgeKind::Semantic => egui::Color32::from_rgba_unmultiplied(50, 80, 160, a.saturating_add(30)),
+        }
     }
 }
 
@@ -2122,12 +2313,17 @@ fn node_at(
 
 /// Draw a node label just to the right of its position.
 fn draw_label(painter: &egui::Painter, pos: egui::Pos2, text: &str) {
+    let color = if dark_bg() {
+        egui::Color32::from_gray(220)
+    } else {
+        egui::Color32::from_gray(40)
+    };
     painter.text(
         pos + egui::vec2(9.0, 0.0),
         egui::Align2::LEFT_CENTER,
         text,
         egui::FontId::proportional(12.0),
-        egui::Color32::from_gray(220),
+        color,
     );
 }
 
@@ -2275,7 +2471,13 @@ fn relative_md_link(from_file: &Path, to_file: &Path) -> String {
 
 /// Colour for proposed (model-inferred) values, kept visually distinct from
 /// asserted ones — the GUI half of INV-2.
-const PROPOSED: egui::Color32 = egui::Color32::from_rgb(225, 200, 110);
+fn proposed_color() -> egui::Color32 {
+    if dark_bg() {
+        egui::Color32::from_rgb(225, 200, 110)
+    } else {
+        egui::Color32::from_rgb(150, 95, 15)
+    }
+}
 
 /// A small provenance flag shown next to a field (status, summary).
 fn prov_badge(ui: &mut egui::Ui, source: Provenance) {
@@ -2284,7 +2486,7 @@ fn prov_badge(ui: &mut egui::Ui, source: Provenance) {
             ui.weak("(asserted)");
         }
         Provenance::Proposed => {
-            ui.colored_label(PROPOSED, "(proposed)");
+            ui.colored_label(proposed_color(), "(proposed)");
         }
     }
 }
@@ -2304,18 +2506,27 @@ fn cluster_color(community: usize) -> egui::Color32 {
         (200, 160, 140), // tan
     ];
     let (r, g, b) = PALETTE[community % PALETTE.len()];
-    egui::Color32::from_rgb(r, g, b)
+    if dark_bg() {
+        egui::Color32::from_rgb(r, g, b)
+    } else {
+        // darken for legibility on a light canvas
+        let d = |c: u8| (c as f32 * 0.55) as u8;
+        egui::Color32::from_rgb(d(r), d(g), d(b))
+    }
 }
 
-/// Per-status colour, mirroring the CLI's `owo-colors` tints.
+/// Per-status colour, mirroring the CLI's `owo-colors` tints. Two variants: bright
+/// for dark themes, darker/saturated for light ones (so they stay legible).
 fn status_color(status: Status) -> egui::Color32 {
-    match status {
-        Status::Concept => egui::Color32::from_rgb(110, 200, 220),
-        Status::Draft => egui::Color32::from_rgb(120, 160, 235),
-        Status::Active => egui::Color32::from_rgb(120, 210, 120),
-        Status::Dormant => egui::Color32::from_rgb(225, 200, 110),
-        Status::Complete => egui::Color32::from_rgb(150, 230, 150),
-        Status::Superseded => egui::Color32::from_rgb(215, 140, 220),
-        Status::Archived | Status::Unknown => egui::Color32::GRAY,
-    }
+    let (dr, lr) = match status {
+        Status::Concept => ((110, 200, 220), (20, 120, 150)),
+        Status::Draft => ((120, 160, 235), (40, 80, 200)),
+        Status::Active => ((120, 210, 120), (30, 135, 45)),
+        Status::Dormant => ((225, 200, 110), (155, 110, 15)),
+        Status::Complete => ((150, 230, 150), (35, 145, 60)),
+        Status::Superseded => ((215, 140, 220), (150, 45, 160)),
+        Status::Archived | Status::Unknown => ((150, 150, 150), (110, 110, 110)),
+    };
+    let (r, g, b) = if dark_bg() { dr } else { lr };
+    egui::Color32::from_rgb(r, g, b)
 }

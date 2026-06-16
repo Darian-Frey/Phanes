@@ -7,6 +7,13 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 ## [Unreleased]
 
 ### Added
+- F-027 Colour themes. A 🎨 picker in a new top bar switches the whole UI between
+  **Dark**, **Light**, **Parchment** (warm sepia + a bundled DejaVu Serif), and
+  **Cyberpunk** (neon-on-near-black + the built-in monospace). Each is a full egui
+  palette via `apply_theme`; the choice persists to `$XDG_CONFIG_HOME/phanes/theme`.
+  Semantic colours (status / cluster / graph edges / proposed) switch bright↔dark
+  so they stay legible on light themes. The serif is bundled (`assets/fonts/`) and
+  compiled in, so it ships in the AppImage.
 - F-024 Generated open questions. `enrich::propose_questions` feeds a cluster's
   note titles + summaries to the model and returns open questions / unexplored
   directions. `phanes questions` runs it over the whole corpus; the Graph tab's

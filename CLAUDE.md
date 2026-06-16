@@ -114,6 +114,12 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   (`MANUAL` const), shown in the centre pane by `egui_commonmark` behind a `?`
   button / F1 toggle (`show_manual`); read-only, not an indexed note. Ships in the
   AppImage with no runtime file dependency.
+- **Done (F-027 colour themes):** top-bar 🎨 picker → Dark/Light/Parchment/
+  Cyberpunk. `apply_theme(ctx, theme)` sets egui `Visuals` + fonts (Parchment =
+  bundled DejaVu Serif via `include_bytes!` in `assets/fonts/`; Cyberpunk = built-in
+  mono) + a thread-local `dark_bg` flag the colour helpers (`status_color`,
+  `cluster_color`, `edge_color`, `proposed_color`, focus/label) read so they stay
+  legible on light themes. Persisted to `$XDG_CONFIG_HOME/phanes/theme`.
 - **Done (F-024 open questions):** `enrich::propose_questions(notes)` (freeform,
   newline-split) generates open questions for a cluster. `phanes questions` (whole
   corpus) + a Graph-tab **❓ Questions** button → `start_questions` (focused node's

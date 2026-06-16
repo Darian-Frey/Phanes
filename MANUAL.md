@@ -315,6 +315,10 @@ close. The chosen note opens and is revealed in the explorer.
 press `F1`) to read this manual rendered right in the centre pane; Close or `F1`
 again dismisses it. It's read-only and never indexed as a note.
 
+**Themes.** The 🎨 dropdown in the top bar switches the whole UI between **Dark**,
+**Light**, **Parchment** (warm, serif), and **Cyberpunk** (neon, monospace). Your
+choice is remembered between runs.
+
 ### Left — explorer
 
 An **Ideas / Files / Tags** toggle tops the panel:
