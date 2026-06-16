@@ -19,6 +19,27 @@ Severity vocabulary: low | medium | high.
 
 ## Fixed
 
+### BUG-004: AI features didn't work in the AppImage (bundled OpenSSL)
+**Status:** fixed (2026-06-16)
+**Found:** 2026-06-16 (the compiled AppImage couldn't reach the local LM Studio
+server; the same build worked under `cargo run`)
+**Location:** [Cargo.toml](Cargo.toml) `reqwest` dependency
+**Severity:** medium (all AI features — Scan + AI, Ask, bridges, questions — dead
+in the distributed AppImage; the deterministic features were unaffected)
+**Description.** `reqwest`'s default `native-tls` backend links the system
+OpenSSL (`libssl`/`libcrypto`). `linuxdeploy` bundled those into the AppImage, but
+the bundled OpenSSL fails to initialise inside the AppImage's isolated library
+environment, so building the blocking HTTP client (or its first request) errored —
+and every model call failed silently (graceful degradation, INV-4). It worked
+under `cargo run` because that uses the host's OpenSSL. We only ever talk plain
+HTTP to a localhost server, so TLS is never actually exercised.
+**Reproduction.** Build the AppImage, run it, and trigger Scan + AI / Ask with LM
+Studio running: no model calls land, despite the server being up.
+**Notes.** Fixed by switching `reqwest` to the pure-Rust `rustls-tls` backend
+(`default-features = false`, features `json`/`blocking`/`rustls-tls`) — no OpenSSL
+linked or bundled. Verified: `ldd` shows no `libssl`/`libcrypto`, the AppImage
+bundles none, and a live `ask`/`questions` call still reaches the model.
+
 ### BUG-003: A deterministic re-index wiped a note's model-proposed data
 **Status:** fixed (2026-06-15)
 **Found:** 2026-06-15 (changing a note's status from the UI emptied its info panel —

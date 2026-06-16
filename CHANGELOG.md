@@ -222,6 +222,12 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
   retained for the optional llama.cpp-native path.
 
 ### Fixed
+- AI features now work in the AppImage (BUG-004). `reqwest` switched from the
+  default OpenSSL (`native-tls`) backend to pure-Rust `rustls-tls`, so no
+  `libssl`/`libcrypto` is linked or bundled — the bundled OpenSSL failed to
+  initialise inside the AppImage, silently killing every model call (Scan + AI,
+  Ask, bridges, questions) while the same build worked under `cargo run`. We only
+  talk plain HTTP to a localhost server, so TLS is never exercised either way.
 - A deterministic re-index no longer wipes a note's model-proposed data (BUG-003).
   Editing a note (e.g. changing its status, which lives in the blockquote header
   for this corpus) used to rebuild it from asserted facts only and destroy its

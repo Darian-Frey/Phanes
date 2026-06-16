@@ -37,7 +37,10 @@ tabled        = { version = "0.15", features = ["ansi"] }   # ansi: align colore
 owo-colors    = { version = "4", features = ["supports-colors"] }   # tint only on a TTY
 
 # Enrichment is opt-in. Pulls in nothing unless the `enrich` feature is on.
-reqwest       = { version = "0.12", features = ["json", "blocking"], optional = true }
+# rustls (not the default native-tls) so we don't link/bundle OpenSSL — the
+# bundled libssl breaks model calls inside the AppImage, and we only ever talk
+# plain HTTP to a localhost server anyway, so TLS is never exercised.
+reqwest       = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"], optional = true }
 
 # Desktop UI is opt-in. Pulls in the egui/eframe stack only under `ui`.
 eframe        = { version = "0.34", optional = true }

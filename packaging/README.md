@@ -28,9 +28,16 @@ The result lands in `dist/Phanes-<version>-x86_64.AppImage`. Run it directly:
 
 ### What's inside / notes
 
-- Built with `--features ui,enrich`, so the AI features (Scan + AI, Ask, bridges)
-  work when a local OpenAI-compatible model server is running. Without a server
-  the deterministic features still work — the model layer is opt-in (INV-1).
+- Built with `--features ui,enrich`, so the AI features (Scan + AI, Ask, bridges,
+  questions) work when a local OpenAI-compatible model server is running. Without a
+  server the deterministic features still work — the model layer is opt-in (INV-1).
+  The model client uses pure-Rust `rustls` (not OpenSSL), so nothing TLS-related is
+  bundled and model calls work inside the AppImage (BUG-004).
+- The server defaults to `http://127.0.0.1:1234` (LM Studio's default). To point
+  elsewhere, set `PHANES_LLM_URL` / `PHANES_LLM_MODEL` / `PHANES_EMBED_URL` /
+  `PHANES_EMBED_MODEL` in the environment that launches the AppImage — note that a
+  desktop-menu launch does **not** inherit your shell profile, so for non-default
+  setups launch from a terminal (or set the vars in the `.desktop` entry).
 - `phanes-ui` takes the ideas folder as its first argument and defaults to
   `ideas` relative to the working directory. Launched from a desktop menu the
   working directory is usually `$HOME`, so it will look for `~/ideas`; launch
