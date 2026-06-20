@@ -57,10 +57,23 @@ enum Theme {
     Light,
     Parchment,
     Cyberpunk,
+    Orphic,
+    Nord,
+    Solarized,
+    Gruvbox,
 }
 
 impl Theme {
-    const ALL: [Theme; 4] = [Theme::Dark, Theme::Light, Theme::Parchment, Theme::Cyberpunk];
+    const ALL: [Theme; 8] = [
+        Theme::Dark,
+        Theme::Light,
+        Theme::Parchment,
+        Theme::Cyberpunk,
+        Theme::Orphic,
+        Theme::Nord,
+        Theme::Solarized,
+        Theme::Gruvbox,
+    ];
 
     fn label(self) -> &'static str {
         match self {
@@ -68,6 +81,10 @@ impl Theme {
             Theme::Light => "Light",
             Theme::Parchment => "Parchment",
             Theme::Cyberpunk => "Cyberpunk",
+            Theme::Orphic => "Orphic",
+            Theme::Nord => "Nord",
+            Theme::Solarized => "Solarized",
+            Theme::Gruvbox => "Gruvbox",
         }
     }
     fn from_label(s: &str) -> Option<Theme> {
@@ -129,6 +146,31 @@ fn apply_theme(ctx: &egui::Context, theme: Theme) {
             C::from_rgb(12, 10, 22), C::from_rgb(20, 16, 34), C::from_rgb(8, 6, 16),
             C::from_rgb(225, 230, 245), C::from_rgb(120, 130, 180), C::from_rgb(255, 70, 200),
             C::from_rgb(30, 22, 50), C::from_rgb(48, 34, 78),
+        ),
+        // On-brand: a cosmic indigo void with luminous gold — Phanes, primordial
+        // of light, manifesting from the dark.
+        Theme::Orphic => (
+            C::from_rgb(18, 15, 34), C::from_rgb(27, 22, 50), C::from_rgb(12, 10, 24),
+            C::from_rgb(228, 222, 240), C::from_rgb(150, 138, 182), C::from_rgb(240, 206, 128),
+            C::from_rgb(40, 33, 66), C::from_rgb(56, 46, 90),
+        ),
+        // Nord — cool, muted arctic blues.
+        Theme::Nord => (
+            C::from_rgb(46, 52, 64), C::from_rgb(59, 66, 82), C::from_rgb(38, 43, 54),
+            C::from_rgb(216, 222, 233), C::from_rgb(143, 153, 175), C::from_rgb(136, 192, 208),
+            C::from_rgb(67, 76, 94), C::from_rgb(86, 96, 116),
+        ),
+        // Solarized Dark — Ethan Schoonover's low-eyestrain palette.
+        Theme::Solarized => (
+            C::from_rgb(0, 43, 54), C::from_rgb(7, 54, 66), C::from_rgb(0, 33, 42),
+            C::from_rgb(147, 161, 161), C::from_rgb(88, 110, 117), C::from_rgb(38, 139, 210),
+            C::from_rgb(20, 67, 79), C::from_rgb(32, 82, 94),
+        ),
+        // Gruvbox Dark — warm retro earth tones.
+        Theme::Gruvbox => (
+            C::from_rgb(40, 40, 40), C::from_rgb(60, 56, 54), C::from_rgb(29, 32, 33),
+            C::from_rgb(235, 219, 178), C::from_rgb(168, 153, 132), C::from_rgb(250, 189, 47),
+            C::from_rgb(80, 73, 69), C::from_rgb(102, 92, 84),
         ),
     };
 

@@ -5,6 +5,11 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 
 ## [Unreleased]
 
+### Added
+- Four more colour themes (F-027): **Orphic** (the on-brand one — cosmic indigo
+  void + luminous gold, after the name), **Nord**, **Solarized**, and **Gruvbox**.
+  Eight themes total in the 🎨 picker; each is one palette arm in `apply_theme`.
+
 ### Fixed
 - Box-drawing glyphs (`├ └ │ ─`) in rendered markdown no longer show as □ in the
   Dark/Light themes (BUG-005). egui's default proportional font lacks them; the

@@ -216,7 +216,8 @@ Ask views.
 **Priority:** Could
 **Acceptance:**
 - A theme picker (top-bar 🎨 dropdown) switches the whole UI between **Dark**,
-  **Light**, **Parchment**, and **Cyberpunk**; the choice persists across runs.
+  **Light**, **Parchment**, **Cyberpunk**, **Orphic**, **Nord**, **Solarized**,
+  and **Gruvbox**; the choice persists across runs.
 - Each theme is a full palette (`apply_theme` → egui `Visuals`); Parchment adds a
   bundled **serif** font, Cyberpunk uses the built-in **monospace**.
 - Semantic colours (status / cluster / graph edges / proposed) stay legible on
@@ -226,7 +227,10 @@ persisted to `$XDG_CONFIG_HOME/phanes/theme` (global). Parchment serif is
 DejaVu Serif, bundled (`assets/fonts/`, redistributable) and compiled in with
 `include_str!`/`include_bytes!` so it ships in the AppImage.
 **Notes:** A new top bar hosts the picker. The graph canvas accents (focus,
-gaps, edges, labels) are theme-aware too.
+gaps, edges, labels) are theme-aware too. Orphic is the on-brand one (cosmic
+indigo + luminous gold — the primordial-light identity of the name); Nord /
+Solarized / Gruvbox are well-known palettes. New palettes are one match arm in
+`apply_theme` each.
 
 ## Candidate features (uncommitted)
 

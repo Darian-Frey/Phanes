@@ -114,8 +114,9 @@ grammars/idea_extract.gbnf   constrains model JSON; keep in lockstep with Enrich
   (`MANUAL` const), shown in the centre pane by `egui_commonmark` behind a `?`
   button / F1 toggle (`show_manual`); read-only, not an indexed note. Ships in the
   AppImage with no runtime file dependency.
-- **Done (F-027 colour themes):** top-bar 🎨 picker → Dark/Light/Parchment/
-  Cyberpunk. `apply_theme(ctx, theme)` sets egui `Visuals` + fonts (Parchment =
+- **Done (F-027 colour themes):** top-bar 🎨 picker → 8 themes (Dark/Light/
+  Parchment/Cyberpunk/Orphic/Nord/Solarized/Gruvbox; add one = a `Theme` variant
+  + an `apply_theme` palette arm). `apply_theme(ctx, theme)` sets egui `Visuals` + fonts (Parchment =
   bundled DejaVu Serif via `include_bytes!` in `assets/fonts/`; Cyberpunk = built-in
   mono) + a thread-local `dark_bg` flag the colour helpers (`status_color`,
   `cluster_color`, `edge_color`, `proposed_color`, focus/label) read so they stay
