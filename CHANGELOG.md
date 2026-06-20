@@ -5,6 +5,12 @@ Entries reference F- (features) and D- (decisions) IDs for traceability.
 
 ## [Unreleased]
 
+### Fixed
+- Box-drawing glyphs (`├ └ │ ─`) in rendered markdown no longer show as □ in the
+  Dark/Light themes (BUG-005). egui's default proportional font lacks them; the
+  bundled DejaVu Serif is now registered as a fallback font in every theme, so
+  glyphs the primary font lacks fall through to it.
+
 ## [1.0.0] - 2026-06-16
 
 First release. The deterministic core (index / search / stale / related / near /

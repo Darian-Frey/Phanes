@@ -19,6 +19,21 @@ Severity vocabulary: low | medium | high.
 
 ## Fixed
 
+### BUG-005: Box-drawing glyphs rendered as □ in the Dark/Light themes
+**Status:** fixed (2026-06-16)
+**Found:** 2026-06-16 (a note's file-tree block — `├ └ │ ─` — showed as empty
+boxes in Dark and Light, but rendered fine in Parchment and Cyberpunk)
+**Location:** [src/bin/phanes-ui.rs](src/bin/phanes-ui.rs) `apply_theme`
+**Severity:** low (cosmetic — affected glyph coverage, not content)
+**Description.** Dark/Light use egui's default proportional font (Ubuntu-Light),
+which lacks U+2500 box-drawing glyphs, so file-tree art in rendered markdown showed
+as □. Parchment (bundled DejaVu Serif) and Cyberpunk (egui's monospace) both
+include those glyphs, so only the two default-font themes were affected.
+**Notes.** Fixed by registering the bundled DejaVu Serif as a **fallback** font
+(last in both the Proportional and Monospace families) in every theme, so glyphs
+the primary font lacks fall through to it. Parchment still uses it as the primary
+proportional face.
+
 ### BUG-004: AI features didn't work in the AppImage (bundled OpenSSL)
 **Status:** fixed (2026-06-16)
 **Found:** 2026-06-16 (the compiled AppImage couldn't reach the local LM Studio

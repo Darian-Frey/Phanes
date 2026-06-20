@@ -155,15 +155,18 @@ fn apply_theme(ctx: &egui::Context, theme: Theme) {
     ctx.set_visuals(v);
 
     // Fonts: serif for Parchment, monospace for Cyberpunk, default sans otherwise.
+    // DejaVu Serif is always registered as a *fallback* (last in each family) so
+    // glyphs the default fonts lack — notably box-drawing ├ └ │ ─ in file-tree
+    // blocks — still render in every theme instead of showing as □.
     let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert("serif".to_owned(), egui::FontData::from_static(SERIF).into());
+    let prop = fonts.families.entry(egui::FontFamily::Proportional).or_default();
     if theme == Theme::Parchment {
-        fonts.font_data.insert("serif".to_owned(), egui::FontData::from_static(SERIF).into());
-        fonts
-            .families
-            .entry(egui::FontFamily::Proportional)
-            .or_default()
-            .insert(0, "serif".to_owned());
+        prop.insert(0, "serif".to_owned()); // primary face for Parchment
+    } else {
+        prop.push("serif".to_owned()); // fallback only
     }
+    fonts.families.entry(egui::FontFamily::Monospace).or_default().push("serif".to_owned());
     ctx.set_fonts(fonts);
 
     let family = if theme == Theme::Cyberpunk {
